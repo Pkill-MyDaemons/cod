@@ -44,7 +44,7 @@ class _ShellState extends ConsumerState<_Shell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _index, children: _screens),
+      body: SelectionArea(child: IndexedStack(index: _index, children: _screens)),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
