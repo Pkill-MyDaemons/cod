@@ -1,8 +1,10 @@
+import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:highlight/highlight.dart' show highlight, Node;
 import '../models/tool.dart';
 import '../services/agent_service.dart';
 import '../services/sandbox_service.dart';
@@ -543,84 +545,220 @@ class _SuggestionTile extends StatelessWidget {
   }
 }
 
-// ── File viewer panel ─────────────────────────────────────────────────────────
+// ── File viewer panel (syntax highlighted) ───────────────────────────────────
 
-class _FileViewerPanel extends StatelessWidget {
+class _FileViewerPanel extends StatefulWidget {
   final CodeFile file;
   const _FileViewerPanel({required this.file});
 
   @override
+  State<_FileViewerPanel> createState() => _FileViewerPanelState();
+}
+
+class _FileViewerPanelState extends State<_FileViewerPanel> {
+  // Atom One Dark palette
+  static const _bg = Color(0xFF282C34);
+  static const _gutterBg = Color(0xFF21252B);
+  static const _baseColor = Color(0xFFABB2BF);
+  static const _gutterColor = Color(0xFF4B5263);
+
+  static const _theme = <String, TextStyle>{
+    'hljs-comment':       TextStyle(color: Color(0xFF5C6370), fontStyle: FontStyle.italic),
+    'hljs-quote':         TextStyle(color: Color(0xFF5C6370)),
+    'hljs-keyword':       TextStyle(color: Color(0xFFC678DD)),
+    'hljs-selector-tag':  TextStyle(color: Color(0xFFC678DD)),
+    'hljs-literal':       TextStyle(color: Color(0xFF56B6C2)),
+    'hljs-string':        TextStyle(color: Color(0xFF98C379)),
+    'hljs-addition':      TextStyle(color: Color(0xFF98C379)),
+    'hljs-number':        TextStyle(color: Color(0xFFD19A66)),
+    'hljs-variable':      TextStyle(color: Color(0xFFE06C75)),
+    'hljs-template-variable': TextStyle(color: Color(0xFFE06C75)),
+    'hljs-deletion':      TextStyle(color: Color(0xFFE06C75)),
+    'hljs-name':          TextStyle(color: Color(0xFFE06C75)),
+    'hljs-tag':           TextStyle(color: Color(0xFFE06C75)),
+    'hljs-attr':          TextStyle(color: Color(0xFFD19A66)),
+    'hljs-attribute':     TextStyle(color: Color(0xFFD19A66)),
+    'hljs-type':          TextStyle(color: Color(0xFFE5C07B)),
+    'hljs-built_in':      TextStyle(color: Color(0xFFE5C07B)),
+    'hljs-class':         TextStyle(color: Color(0xFFE5C07B)),
+    'hljs-title':         TextStyle(color: Color(0xFF61AFEF)),
+    'hljs-function':      TextStyle(color: Color(0xFF61AFEF)),
+    'hljs-section':       TextStyle(color: Color(0xFF61AFEF)),
+    'hljs-operator':      TextStyle(color: Color(0xFF56B6C2)),
+    'hljs-property':      TextStyle(color: Color(0xFF56B6C2)),
+    'hljs-regexp':        TextStyle(color: Color(0xFF98C379)),
+    'hljs-symbol':        TextStyle(color: Color(0xFF56B6C2)),
+    'hljs-bullet':        TextStyle(color: Color(0xFFE06C75)),
+    'hljs-meta':          TextStyle(color: Color(0xFF5C6370)),
+    'hljs-link':          TextStyle(color: Color(0xFF56B6C2), decoration: TextDecoration.underline),
+    'hljs-emphasis':      TextStyle(fontStyle: FontStyle.italic),
+    'hljs-strong':        TextStyle(fontWeight: FontWeight.bold),
+    'hljs-params':        TextStyle(color: Color(0xFFABB2BF)),
+    'hljs-punctuation':   TextStyle(color: Color(0xFFABB2BF)),
+    'hljs-selector-class':TextStyle(color: Color(0xFFE5C07B)),
+    'hljs-selector-id':   TextStyle(color: Color(0xFFE06C75)),
+    'hljs-selector-attr': TextStyle(color: Color(0xFF56B6C2)),
+  };
+
+  static const _baseStyle = TextStyle(
+    fontFamily: 'monospace',
+    fontSize: 13,
+    color: _baseColor,
+    height: 1.0,
+  );
+
+  List<List<InlineSpan>>? _lines;
+  double _maxLineChars = 80;
+
+  @override
+  void initState() {
+    super.initState();
+    _parse();
+  }
+
+  @override
+  void didUpdateWidget(_FileViewerPanel old) {
+    super.didUpdateWidget(old);
+    if (old.file.path != widget.file.path) _parse();
+  }
+
+  Future<void> _parse() async {
+    if (mounted) setState(() => _lines = null);
+    final content = widget.file.content;
+    final lang = _langForFile(widget.file.name);
+
+    await Future.microtask(() {
+      List<List<InlineSpan>> lines;
+      try {
+        final result = highlight.parse(content, language: lang);
+        final flat = <InlineSpan>[];
+        if (result.nodes != null) {
+          _flattenNodes(result.nodes!, flat, null);
+        } else {
+          flat.add(TextSpan(text: content, style: _baseStyle));
+        }
+        lines = _splitIntoLines(flat);
+      } catch (_) {
+        lines = content
+            .split('\n')
+            .map((l) => <InlineSpan>[TextSpan(text: l, style: _baseStyle)])
+            .toList();
+      }
+
+      double maxChars = 0;
+      for (final line in lines) {
+        double len = 0;
+        for (final span in line) {
+          if (span is TextSpan) len += (span.text?.length ?? 0);
+        }
+        if (len > maxChars) maxChars = len;
+      }
+
+      if (mounted) {
+        setState(() {
+          _lines = lines;
+          _maxLineChars = maxChars;
+        });
+      }
+    });
+  }
+
+  static void _flattenNodes(
+    List<Node> nodes,
+    List<InlineSpan> out,
+    TextStyle? parent,
+  ) {
+    for (final node in nodes) {
+      final style = node.className != null
+          ? (_theme['hljs-${node.className}']
+                  ?.copyWith(fontFamily: 'monospace', fontSize: 13) ??
+              parent)
+          : parent;
+      if (node.value != null) {
+        out.add(TextSpan(text: node.value, style: style ?? _baseStyle));
+      }
+      if (node.children != null) {
+        _flattenNodes(node.children!, out, style);
+      }
+    }
+  }
+
+  static List<List<InlineSpan>> _splitIntoLines(List<InlineSpan> spans) {
+    final lines = <List<InlineSpan>>[];
+    var current = <InlineSpan>[];
+    for (final span in spans) {
+      if (span is! TextSpan || span.text == null) continue;
+      final parts = span.text!.split('\n');
+      for (int i = 0; i < parts.length; i++) {
+        if (parts[i].isNotEmpty) {
+          current.add(TextSpan(text: parts[i], style: span.style));
+        }
+        if (i < parts.length - 1) {
+          lines.add(current);
+          current = [];
+        }
+      }
+    }
+    lines.add(current);
+    return lines;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final lines = file.content.split('\n');
+    final lines = _lines;
 
     return Column(
       children: [
-        // File path breadcrumb
+        // Breadcrumb
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          color: cs.surfaceContainerLow,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          color: _gutterBg,
           child: Text(
-            file.path,
-            style: TextStyle(
-              fontSize: 11,
-              fontFamily: 'monospace',
-              color: cs.onSurface.withOpacity(0.45),
-            ),
+            widget.file.path,
+            style: const TextStyle(
+                fontSize: 11, fontFamily: 'monospace', color: Color(0xFF636D83)),
             overflow: TextOverflow.ellipsis,
           ),
         ),
-        // Content
+        // Code
         Expanded(
-          child: Scrollbar(
-            child: SingleChildScrollView(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: IntrinsicWidth(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: List.generate(lines.length, (i) {
-                      return _CodeLine(
-                        lineNumber: i + 1,
-                        totalLines: lines.length,
-                        content: lines[i],
-                      );
-                    }),
-                  ),
+          child: lines == null
+              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              : _CodeView(
+                  lines: lines,
+                  maxLineChars: _maxLineChars,
+                  content: widget.file.content,
                 ),
-              ),
-            ),
-          ),
         ),
-        // Footer: line count
+        // Footer
         Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          color: cs.surfaceContainerLow,
+          color: _gutterBg,
           child: Row(
             children: [
               Text(
-                '${lines.length} lines',
-                style: TextStyle(
-                    fontSize: 11, color: cs.onSurface.withOpacity(0.35)),
+                '${lines?.length ?? 0} lines',
+                style: const TextStyle(fontSize: 11, color: _gutterColor),
               ),
               const SizedBox(width: 16),
               Text(
-                file.name.contains('.') ? '.${file.name.split('.').last}' : 'plain',
-                style: TextStyle(
-                    fontSize: 11, color: cs.onSurface.withOpacity(0.35)),
+                widget.file.name.contains('.')
+                    ? '.${widget.file.name.split('.').last}'
+                    : 'plain',
+                style: const TextStyle(fontSize: 11, color: _gutterColor),
               ),
               const Spacer(),
               GestureDetector(
-                onTap: () => Clipboard.setData(ClipboardData(text: file.content)),
-                child: Row(
+                onTap: () =>
+                    Clipboard.setData(ClipboardData(text: widget.file.content)),
+                child: const Row(
                   children: [
-                    Icon(Icons.copy, size: 12, color: cs.onSurface.withOpacity(0.3)),
-                    const SizedBox(width: 4),
-                    Text('copy',
-                        style: TextStyle(
-                            fontSize: 11, color: cs.onSurface.withOpacity(0.3))),
+                    Icon(Icons.copy, size: 12, color: _gutterColor),
+                    SizedBox(width: 4),
+                    Text('copy', style: TextStyle(fontSize: 11, color: _gutterColor)),
                   ],
                 ),
               ),
@@ -632,60 +770,105 @@ class _FileViewerPanel extends StatelessWidget {
   }
 }
 
-class _CodeLine extends StatelessWidget {
-  final int lineNumber;
-  final int totalLines;
+class _CodeView extends StatelessWidget {
+  final List<List<InlineSpan>> lines;
+  final double maxLineChars;
   final String content;
 
-  const _CodeLine({
-    required this.lineNumber,
-    required this.totalLines,
+  const _CodeView({
+    required this.lines,
+    required this.maxLineChars,
     required this.content,
   });
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final numWidth = '${totalLines}'.length * 8.0 + 16.0;
+    final lineCount = lines.length;
+    final gutterWidth = '${lineCount}'.length * 9.0 + 20.0;
+    // 7.8px per monospace char at 13px; generous padding
+    final contentWidth = max(gutterWidth + maxLineChars * 7.8 + 48, 600.0);
 
-    return SizedBox(
-      height: 20,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Line number
-          Container(
-            width: numWidth,
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 12),
-            color: cs.surfaceContainerLow,
-            child: Text(
-              '$lineNumber',
-              style: TextStyle(
-                fontSize: 12,
-                fontFamily: 'monospace',
-                color: cs.onSurface.withOpacity(0.25),
-                height: 1,
+    return Container(
+      color: _FileViewerPanelState._bg,
+      child: Scrollbar(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: contentWidth,
+            child: ListView.builder(
+              itemCount: lineCount,
+              itemExtent: 20.0,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemBuilder: (_, i) => Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Gutter
+                  Container(
+                    width: gutterWidth,
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 16),
+                    color: _FileViewerPanelState._gutterBg,
+                    child: Text(
+                      '${i + 1}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                        color: _FileViewerPanelState._gutterColor,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                  // Code
+                  Expanded(
+                    child: RichText(
+                      text: TextSpan(
+                        style: _FileViewerPanelState._baseStyle,
+                        children: lines[i].isEmpty
+                            ? const [TextSpan(text: '​')]
+                            : lines[i],
+                      ),
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.visible,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          // Code content
-          Padding(
-            padding: const EdgeInsets.only(left: 12, right: 24),
-            child: Text(
-              content,
-              style: TextStyle(
-                fontSize: 13,
-                fontFamily: 'monospace',
-                color: cs.onSurface.withOpacity(0.88),
-                height: 1,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
+}
+
+String _langForFile(String name) {
+  if (!name.contains('.')) return 'plaintext';
+  return switch (name.split('.').last.toLowerCase()) {
+    'dart' => 'dart',
+    'py' => 'python',
+    'js' || 'mjs' || 'cjs' => 'javascript',
+    'ts' => 'typescript',
+    'jsx' || 'tsx' => 'javascript',
+    'go' => 'go',
+    'rs' => 'rust',
+    'c' || 'h' => 'c',
+    'cpp' || 'cc' || 'cxx' || 'hpp' => 'cpp',
+    'swift' => 'swift',
+    'kt' || 'kts' => 'kotlin',
+    'java' => 'java',
+    'rb' => 'ruby',
+    'php' => 'php',
+    'sh' || 'bash' || 'zsh' => 'bash',
+    'json' || 'jsonc' => 'json',
+    'yaml' || 'yml' => 'yaml',
+    'xml' || 'html' || 'htm' || 'svg' => 'xml',
+    'css' => 'css',
+    'scss' || 'sass' => 'scss',
+    'sql' => 'sql',
+    'md' || 'mdx' => 'markdown',
+    _ => 'plaintext',
+  };
 }
 
 // ── Entry tiles (agent output) ────────────────────────────────────────────────
