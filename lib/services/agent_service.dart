@@ -268,6 +268,9 @@ class AgentService {
   }
 
   Future<String> _runCommand(String command, String? workingDir) async {
+    if (Platform.isIOS || Platform.isAndroid) {
+      return 'Shell execution is not supported on this platform.';
+    }
     if (_blockedCommands.hasMatch(command)) {
       return 'Blocked: command contains a potentially destructive operation.';
     }
@@ -288,6 +291,10 @@ class AgentService {
   }
 
   Stream<String> _runCommandStream(String command, String? workingDir) async* {
+    if (Platform.isIOS || Platform.isAndroid) {
+      yield 'Shell execution is not supported on this platform.';
+      return;
+    }
     if (_blockedCommands.hasMatch(command)) {
       yield 'Blocked: command contains a potentially destructive operation.';
       return;

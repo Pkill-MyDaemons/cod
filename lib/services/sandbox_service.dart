@@ -24,9 +24,11 @@ class SandboxService {
   ContainerStatus get status => _status;
 
   // Detect whether Docker is available on this platform
+  bool get _isMobile => Platform.isIOS || Platform.isAndroid;
+
   Future<SandboxType> detect() async {
     // Process.run is unavailable on mobile
-    if (Platform.isIOS || Platform.isAndroid) {
+    if (_isMobile) {
       _type = SandboxType.restricted;
       return _type;
     }
@@ -50,7 +52,7 @@ class SandboxService {
   }) async {
     _workingDir = workingDir;
 
-    if (_type == SandboxType.restricted) {
+    if (_isMobile || _type == SandboxType.restricted) {
       _status = ContainerStatus.running;
       return;
     }
@@ -94,6 +96,7 @@ class SandboxService {
 
   // Execute a shell command in the sandbox (blocking, returns full output)
   Future<String> exec(String command, {String? workingDir}) async {
+    if (_isMobile) return 'Shell execution is not supported on this platform.';
     if (_type == SandboxType.docker && _containerId != null) {
       return _execDocker(command);
     }
@@ -102,6 +105,7 @@ class SandboxService {
 
   // Execute a shell command and stream output lines as they arrive
   Stream<String> execStream(String command, {String? workingDir}) {
+    if (_isMobile) return Stream.value('Shell execution is not supported on this platform.');
     if (_type == SandboxType.docker && _containerId != null) {
       return _execDockerStream(command);
     }
@@ -174,7 +178,7 @@ class SandboxService {
 
   Future<void> stop() async {
     _status = ContainerStatus.idle;
-    if (_containerId == null) return;
+    if (_containerId == null || _isMobile) return;
     try {
       await Process.run('docker', ['rm', '-f', _containerId!])
           .timeout(const Duration(seconds: 10));

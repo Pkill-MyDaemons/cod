@@ -19,6 +19,7 @@ class ConfigNotifier extends Notifier<AppConfig> {
   // One-shot migration: copy settings from the old sandboxed plist (used by
   // versions before v1.4.0 which ran with App Sandbox enabled).
   Future<void> _migrateFromSandbox(SharedPreferences prefs) async {
+    if (Platform.isIOS || Platform.isAndroid) return;
     final home = Platform.environment['HOME'] ?? '';
     final plist =
         '$home/Library/Containers/com.henry.cod/Data/Library/Preferences/com.henry.cod.plist';
