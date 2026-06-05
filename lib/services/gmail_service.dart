@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../config/google_oauth.dart';
 import '../models/email_model.dart';
 
 const _authUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -13,8 +14,6 @@ const _scope =
     'https://www.googleapis.com/auth/calendar '
     'email';
 
-const _prefClientId = 'gmail_client_id';
-const _prefClientSecret = 'gmail_client_secret';
 const _prefAccessToken = 'gmail_access_token';
 const _prefRefreshToken = 'gmail_refresh_token';
 const _prefExpiry = 'gmail_expiry';
@@ -39,20 +38,6 @@ class GmailService {
     return prefs.getString(_prefUserEmail) ?? '';
   }
 
-  Future<void> saveCredentials(String clientId, String clientSecret) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefClientId, clientId);
-    await prefs.setString(_prefClientSecret, clientSecret);
-  }
-
-  Future<({String clientId, String clientSecret})> loadCredentials() async {
-    final prefs = await SharedPreferences.getInstance();
-    return (
-      clientId: prefs.getString(_prefClientId) ?? '',
-      clientSecret: prefs.getString(_prefClientSecret) ?? '',
-    );
-  }
-
   Future<void> disconnect() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefAccessToken);
@@ -64,9 +49,9 @@ class GmailService {
   // ── OAuth flow (local redirect server) ──────────────────────────────────────
 
   Future<String> connect() async {
-    final creds = await loadCredentials();
-    if (creds.clientId.isEmpty || creds.clientSecret.isEmpty) {
-      throw Exception('Set Client ID and Secret in Settings → Gmail first.');
+    if (kGoogleClientId.isEmpty || kGoogleClientSecret.isEmpty) {
+      throw Exception(
+          'App was built without Google credentials. Rebuild with --dart-define.');
     }
 
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -74,7 +59,7 @@ class GmailService {
     final redirectUri = 'http://127.0.0.1:$port/callback';
 
     final authUri = Uri.parse(_authUrl).replace(queryParameters: {
-      'client_id': creds.clientId,
+      'client_id': kGoogleClientId,
       'redirect_uri': redirectUri,
       'response_type': 'code',
       'scope': _scope,
@@ -103,7 +88,7 @@ class GmailService {
 
     if (code == null) throw Exception('No code received from OAuth callback.');
 
-    await _exchangeCode(code, creds.clientId, creds.clientSecret, redirectUri);
+    await _exchangeCode(code, kGoogleClientId, kGoogleClientSecret, redirectUri);
     return await userEmail;
   }
 
@@ -154,15 +139,14 @@ class GmailService {
   }
 
   Future<void> _refreshToken(SharedPreferences prefs) async {
-    final creds = await loadCredentials();
     final refresh = prefs.getString(_prefRefreshToken) ?? '';
     if (refresh.isEmpty) throw Exception('No refresh token — reconnect Gmail.');
 
     final resp = await http.post(Uri.parse(_tokenUrl), body: {
       'grant_type': 'refresh_token',
       'refresh_token': refresh,
-      'client_id': creds.clientId,
-      'client_secret': creds.clientSecret,
+      'client_id': kGoogleClientId,
+      'client_secret': kGoogleClientSecret,
     });
 
     if (resp.statusCode != 200) {

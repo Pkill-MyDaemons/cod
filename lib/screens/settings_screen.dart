@@ -252,9 +252,6 @@ class _GmailCard extends ConsumerStatefulWidget {
 }
 
 class _GmailCardState extends ConsumerState<_GmailCard> {
-  final _idCtrl = TextEditingController();
-  final _secretCtrl = TextEditingController();
-  bool _secretVisible = false;
   bool _connected = false;
   String _email = '';
 
@@ -265,32 +262,10 @@ class _GmailCardState extends ConsumerState<_GmailCard> {
   }
 
   Future<void> _load() async {
-    final creds = await GmailService.instance.loadCredentials();
     final email = await GmailService.instance.userEmail;
     final connected = await GmailService.instance.isConnected;
     if (!mounted) return;
-    setState(() {
-      _idCtrl.text = creds.clientId;
-      _secretCtrl.text = creds.clientSecret;
-      _email = email;
-      _connected = connected;
-    });
-  }
-
-  @override
-  void dispose() {
-    _idCtrl.dispose();
-    _secretCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    await GmailService.instance
-        .saveCredentials(_idCtrl.text.trim(), _secretCtrl.text.trim());
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Credentials saved')));
-    }
+    setState(() { _email = email; _connected = connected; });
   }
 
   Future<void> _disconnect() async {
@@ -340,37 +315,22 @@ class _GmailCardState extends ConsumerState<_GmailCard> {
                 ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Create a Desktop OAuth 2.0 client in Google Cloud Console → '
-            'APIs & Services → Credentials.',
-            style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.45)),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _idCtrl,
-            decoration: const InputDecoration(labelText: 'Client ID'),
-            style: const TextStyle(fontSize: 13),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _secretCtrl,
-            obscureText: !_secretVisible,
-            decoration: InputDecoration(
-              labelText: 'Client Secret',
-              suffixIcon: IconButton(
-                icon: Icon(_secretVisible ? Icons.visibility_off : Icons.visibility,
-                    size: 16),
-                onPressed: () => setState(() => _secretVisible = !_secretVisible),
-              ),
+          if (!_connected) ...[
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () async {
+                try {
+                  final email = await GmailService.instance.connect();
+                  if (mounted) setState(() { _connected = true; _email = email; });
+                } catch (e) {
+                  if (mounted) ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text('$e')));
+                }
+              },
+              icon: const Icon(Icons.login, size: 16),
+              label: const Text('Connect Google Account'),
             ),
-            style: const TextStyle(fontSize: 13),
-          ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: _save,
-            child: const Text('Save credentials'),
-          ),
+          ],
         ],
       ),
     );

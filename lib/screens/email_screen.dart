@@ -52,32 +52,9 @@ class _SetupView extends ConsumerStatefulWidget {
 }
 
 class _SetupViewState extends ConsumerState<_SetupView> {
-  final _idCtrl = TextEditingController();
-  final _secretCtrl = TextEditingController();
-  bool _secretVisible = false;
   bool _connecting = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadSaved();
-  }
-
-  Future<void> _loadSaved() async {
-    final creds = await GmailService.instance.loadCredentials();
-    _idCtrl.text = creds.clientId;
-    _secretCtrl.text = creds.clientSecret;
-  }
-
-  @override
-  void dispose() {
-    _idCtrl.dispose();
-    _secretCtrl.dispose();
-    super.dispose();
-  }
-
   Future<void> _connect() async {
-    await GmailService.instance.saveCredentials(_idCtrl.text.trim(), _secretCtrl.text.trim());
     setState(() => _connecting = true);
     await ref.read(emailProvider.notifier).connect();
     setState(() => _connecting = false);
@@ -86,68 +63,37 @@ class _SetupViewState extends ConsumerState<_SetupView> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.mail_outline, size: 40, color: cs.primary.withOpacity(0.6)),
-          const SizedBox(height: 16),
-          Text('Connect Gmail',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+          Icon(Icons.mail_outline, size: 48, color: cs.primary.withOpacity(0.5)),
+          const SizedBox(height: 20),
+          Text('Gmail', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           Text(
-            'Create an OAuth 2.0 client ID in Google Cloud Console '
-            '(APIs & Services → Credentials → Desktop app), then paste it below.',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: cs.onSurface.withOpacity(0.55)),
+            'Sign in with your Google account to read and manage your inbox.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.55)),
           ),
-          const SizedBox(height: 24),
-          TextField(
-            controller: _idCtrl,
-            decoration: const InputDecoration(labelText: 'Client ID'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _secretCtrl,
-            obscureText: !_secretVisible,
-            decoration: InputDecoration(
-              labelText: 'Client Secret',
-              suffixIcon: IconButton(
-                icon: Icon(_secretVisible ? Icons.visibility_off : Icons.visibility, size: 18),
-                onPressed: () => setState(() => _secretVisible = !_secretVisible),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 28),
           if (widget.error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                widget.error!,
-                style: TextStyle(color: cs.error, fontSize: 13),
-              ),
+              child: Text(widget.error!, style: TextStyle(color: cs.error, fontSize: 13)),
             ),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _connecting ? null : _connect,
-              icon: _connecting
-                  ? SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: cs.onPrimary))
-                  : const Icon(Icons.open_in_browser),
-              label: Text(_connecting ? 'Opening browser…' : 'Connect with Google'),
-            ),
+          FilledButton.icon(
+            onPressed: _connecting ? null : _connect,
+            icon: _connecting
+                ? SizedBox(width: 18, height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary))
+                : const Icon(Icons.login),
+            label: Text(_connecting ? 'Opening browser…' : 'Connect Google Account'),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
