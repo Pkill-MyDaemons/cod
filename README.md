@@ -1,6 +1,6 @@
 # Cod
 
-AI-powered developer assistant with four integrated tools: conversational chat, Gmail inbox management, an agentic code editor, and autonomous task execution.
+AI-powered developer assistant for macOS — conversational chat, Gmail, Google Calendar, an agentic code editor, and task management.
 
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20iOS%20%7C%20Android%20%7C%20Windows-blue)
 ![Flutter](https://img.shields.io/badge/flutter-3.x-blue)
@@ -65,11 +65,40 @@ Open **Settings** and enter keys for the providers you want:
 | Groq | [console.groq.com](https://console.groq.com) |
 | Ollama | No key — set base URL to `http://localhost:11434` |
 
-### Gmail OAuth
-1. [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
-2. Create an **OAuth 2.0 Client ID** of type *Desktop app*
-3. Enable the **Gmail API** for your project
-4. Paste the Client ID and Secret into Settings → Gmail, then tap **Connect**
+### Gmail / Google Calendar
+Tap **Connect Google Account** in Settings or the Email tab. A browser window opens, you sign in, and you're done. No credentials to configure.
+
+---
+
+## Installing on macOS
+
+Download the `.dmg` from [Releases](https://github.com/Pkill-MyDaemons/cod/releases), open it, and drag Cod to Applications.
+
+**"Apple could not verify Cod is free of malware"**
+
+Cod is not yet notarized with Apple (that requires a $99/year developer account). To open it anyway:
+
+**Option A — System Settings:**
+1. Try to open Cod — the warning appears
+2. Open **System Settings → Privacy & Security**
+3. Scroll down to the *Security* section
+4. Click **Open Anyway** next to the Cod message
+
+**Option B — Terminal:**
+```sh
+xattr -cr /Applications/Cod.app
+```
+Then open Cod normally. This removes the quarantine flag Apple sets on downloaded files.
+
+---
+
+## Privacy & Security
+
+- **API keys** are stored locally in macOS `UserDefaults` and never leave your device except in direct requests to the provider you configured (Anthropic, Google, Groq, or your local Ollama instance).
+- **Gmail / Calendar access** uses OAuth 2.0. Cod stores your refresh token locally. Your emails and calendar events are only fetched on demand and are never sent to any server other than Google's own APIs.
+- **Code agent shell commands** run either in a Docker container (if Docker is installed) or in a restricted local shell with sensitive environment variables stripped. Commands are never sent to a remote server.
+- **No analytics, no telemetry, no data collection** of any kind.
+- The app makes outbound HTTPS requests only to: LLM provider APIs, Google APIs (Gmail/Calendar/OAuth), and whatever servers your own shell commands contact.
 
 ---
 
@@ -146,6 +175,20 @@ flutter build ipa --release
 
 # Windows (must run on Windows)
 flutter build windows --release
+```
+
+### Google OAuth credentials (for building from source)
+
+The released binaries have Google OAuth credentials baked in. If you're building from source, create a `.env` file in the project root:
+
+```
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+```
+
+Then build with:
+```sh
+bash build.sh macos --release
 ```
 
 ### macOS entitlements
