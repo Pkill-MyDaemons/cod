@@ -221,7 +221,11 @@ class GmailService {
   }
 
   Future<GmailThread> _getThreadHeader(String id) async {
-    final data = await _get('threads/$id?format=metadata&metadataHeaders=Subject,From,Date');
+    final data = await _get(
+        'threads/$id?format=metadata'
+        '&metadataHeaders=Subject'
+        '&metadataHeaders=From'
+        '&metadataHeaders=Date');
     final messages = (data['messages'] as List? ?? []);
     if (messages.isEmpty) {
       return GmailThread(

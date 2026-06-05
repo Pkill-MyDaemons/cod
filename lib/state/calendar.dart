@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import '../models/calendar_model.dart';
 import '../models/message.dart';
+import '../llm/provider.dart';
 import '../services/gcal_service.dart';
 import '../services/gmail_service.dart';
-import '../models/config.dart';
+import 'providers.dart';
 
 class CalendarState {
   final bool connected;
@@ -113,9 +113,12 @@ class CalendarNotifier extends Notifier<CalendarState> {
 
   // ── Suggestions ────────────────────────────────────────────────────────────
 
-  Future<void> refreshSuggestions(AppConfig config) async {
+  Future<void> refreshSuggestions() async {
     if (!state.connected) return;
     state = state.copyWith(loadingSuggestions: true);
+    final config = ref.read(configProvider);
+    final registry = ref.read(llmRegistryProvider);
+    final provider = registry[config.activeProviderId] ?? registry.values.first;
     try {
       final upcoming = state.events
           .where((e) => e.start.isAfter(DateTime.now()))
@@ -147,37 +150,16 @@ Return ONLY a raw JSON array (no markdown fences), each item has:
   "event": (optional, only for type "add") object with "title", "start" (ISO8601), "end" (ISO8601)
 ''';
 
-      final r = await http.post(
-        Uri.parse('https://api.anthropic.com/v1/messages'),
-        headers: {
-          'x-api-key': config.active.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: jsonEncode({
-          'model': config.active.selectedModel,
-          'max_tokens': 1024,
-          'messages': [
-            {'role': 'user', 'content': prompt}
-          ],
-        }),
-      );
-
-      if (r.statusCode == 200) {
-        final raw = (jsonDecode(r.body)['content'] as List).first['text'] as String;
-        // Strip markdown fences if model added them despite instructions
-        final cleaned = raw
-            .replaceAll(RegExp(r'```json\s*'), '')
-            .replaceAll(RegExp(r'```\s*'), '')
-            .trim();
-        final list = jsonDecode(cleaned) as List<dynamic>;
-        final suggestions = list
-            .map((e) => CalendarSuggestion.fromJson(e as Map<String, dynamic>))
-            .toList();
-        state = state.copyWith(suggestions: suggestions, loadingSuggestions: false);
-      } else {
-        state = state.copyWith(loadingSuggestions: false);
-      }
+      final raw = await provider.complete(config: config, prompt: prompt, maxTokens: 1024);
+      final cleaned = raw
+          .replaceAll(RegExp(r'```json\s*'), '')
+          .replaceAll(RegExp(r'```\s*'), '')
+          .trim();
+      final list = jsonDecode(cleaned) as List<dynamic>;
+      final suggestions = list
+          .map((e) => CalendarSuggestion.fromJson(e as Map<String, dynamic>))
+          .toList();
+      state = state.copyWith(suggestions: suggestions, loadingSuggestions: false);
     } catch (e) {
       state = state.copyWith(loadingSuggestions: false, error: e.toString());
     }
@@ -185,8 +167,11 @@ Return ONLY a raw JSON array (no markdown fences), each item has:
 
   // ── Calendar chat ──────────────────────────────────────────────────────────
 
-  Future<void> sendChatMessage(String text, AppConfig config) async {
+  Future<void> sendChatMessage(String text) async {
     if (text.isEmpty || state.chatStreaming) return;
+    final config = ref.read(configProvider);
+    final registry = ref.read(llmRegistryProvider);
+    final provider = registry[config.activeProviderId] ?? registry.values.first;
 
     final userMsg = Message.user(text);
     state = state.copyWith(chatMessages: [...state.chatMessages, userMsg]);
@@ -198,7 +183,7 @@ Return ONLY a raw JSON array (no markdown fences), each item has:
         .join('\n');
 
     final systemPrompt = 'You are a helpful calendar assistant. '
-        'The user\'s upcoming events:\n$upcomingEvents\n\n'
+        "The user's upcoming events:\n$upcomingEvents\n\n"
         'Answer concisely. If suggesting a new event, describe it clearly.';
 
     final placeholder = Message.assistant('', isStreaming: true);
@@ -211,41 +196,23 @@ Return ONLY a raw JSON array (no markdown fences), each item has:
     try {
       final history = state.chatMessages
           .where((m) => !m.isStreaming)
-          .map((m) => {'role': m.role.name, 'content': m.content})
+          .map((m) => Message(role: m.role, content: m.content))
           .toList();
 
-      // Use Claude SSE streaming
-      final r = await http.Client().send(http.Request(
-        'POST',
-        Uri.parse('https://api.anthropic.com/v1/messages'),
-      )
-        ..headers.addAll({
-          'x-api-key': config.active.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        })
-        ..body = jsonEncode({
-          'model': config.active.selectedModel,
-          'max_tokens': 1024,
-          'system': systemPrompt,
-          'stream': true,
-          'messages': history,
-        }));
-
-      await for (final chunk in r.stream.transform(const Utf8Decoder()).transform(const LineSplitter())) {
-        if (chunk.startsWith('data: ')) {
-          final data = chunk.substring(6).trim();
-          if (data == '[DONE]') break;
-          try {
-            final json = jsonDecode(data) as Map<String, dynamic>;
-            if (json['type'] == 'content_block_delta') {
-              accumulated += (json['delta']['text'] as String? ?? '');
-              final msgs = List<Message>.from(state.chatMessages);
-              msgs[msgs.length - 1] = Message.assistant(accumulated, isStreaming: true);
-              state = state.copyWith(chatMessages: msgs);
-            }
-          } catch (_) {}
-        }
+      await for (final chunk in provider.stream(
+        messages: [
+          Message(role: MessageRole.system, content: systemPrompt),
+          ...history,
+        ],
+        model: config.active.selectedModel,
+        apiKey: config.active.apiKey,
+        baseUrl: config.active.baseUrl,
+        maxTokens: 1024,
+      )) {
+        accumulated += chunk;
+        final msgs = List<Message>.from(state.chatMessages);
+        msgs[msgs.length - 1] = Message.assistant(accumulated, isStreaming: true);
+        state = state.copyWith(chatMessages: msgs);
       }
     } catch (e) {
       accumulated = '_Error: ${e}_';

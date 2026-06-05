@@ -1,3 +1,4 @@
+import '../models/config.dart';
 import '../models/message.dart';
 
 abstract class LLMProvider {
@@ -11,4 +12,30 @@ abstract class LLMProvider {
     String? baseUrl,
     int maxTokens = 4096,
   });
+}
+
+extension LLMProviderX on LLMProvider {
+  Future<String> complete({
+    required AppConfig config,
+    String? system,
+    required String prompt,
+    int maxTokens = 4096,
+  }) async {
+    final msgs = [
+      if (system != null)
+        Message(role: MessageRole.system, content: system),
+      Message(role: MessageRole.user, content: prompt),
+    ];
+    final buf = StringBuffer();
+    await for (final chunk in stream(
+      messages: msgs,
+      model: config.active.selectedModel,
+      apiKey: config.active.apiKey,
+      baseUrl: config.active.baseUrl,
+      maxTokens: maxTokens,
+    )) {
+      buf.write(chunk);
+    }
+    return buf.toString();
+  }
 }

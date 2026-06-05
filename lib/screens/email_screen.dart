@@ -6,6 +6,7 @@ import '../services/gmail_service.dart';
 import '../services/agent_service.dart';
 import '../state/email.dart';
 import '../state/providers.dart';
+import '../llm/provider.dart' show LLMProvider;
 
 class EmailScreen extends ConsumerWidget {
   const EmailScreen({super.key});
@@ -202,17 +203,35 @@ class _ThreadTile extends ConsumerWidget {
     final isUnread = thread.isUnread;
 
     return ListTile(
-      tileColor: isUnread ? cs.primary.withOpacity(0.06) : null,
-      leading: CircleAvatar(
-        backgroundColor: cs.surfaceContainerHigh,
-        radius: 20,
-        child: Text(
-          _initials(thread.from),
-          style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: cs.onSurface.withOpacity(0.7)),
-        ),
+      tileColor: isUnread ? cs.primary.withOpacity(0.08) : null,
+      leading: Stack(
+        alignment: Alignment.topRight,
+        children: [
+          CircleAvatar(
+            backgroundColor: isUnread
+                ? cs.primary.withOpacity(0.25)
+                : cs.surfaceContainerHigh,
+            radius: 20,
+            child: Text(
+              _initials(thread.from),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isUnread ? cs.primary : cs.onSurface.withOpacity(0.7)),
+            ),
+          ),
+          if (isUnread)
+            Container(
+              width: 9,
+              height: 9,
+              decoration: BoxDecoration(
+                color: cs.primary,
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color: Theme.of(context).scaffoldBackgroundColor, width: 1.5),
+              ),
+            ),
+        ],
       ),
       title: Row(
         children: [
@@ -231,18 +250,20 @@ class _ThreadTile extends ConsumerWidget {
             _dateLabel(thread.date),
             style: TextStyle(
                 fontSize: 11,
-                color: cs.onSurface.withOpacity(0.4),
-                fontWeight: isUnread ? FontWeight.w600 : FontWeight.normal),
+                color: isUnread ? cs.primary : cs.onSurface.withOpacity(0.4),
+                fontWeight: isUnread ? FontWeight.w700 : FontWeight.normal),
           ),
         ],
       ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            thread.subject,
+            thread.subject.isEmpty ? '(no subject)' : thread.subject,
             style: TextStyle(
                 fontSize: 13,
+                color: isUnread ? cs.onSurface : cs.onSurface.withOpacity(0.8),
                 fontWeight: isUnread ? FontWeight.w600 : FontWeight.normal),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -332,10 +353,12 @@ class _ThreadDetailScreenState extends ConsumerState<_ThreadDetailScreen> {
               ?.map((m) => 'From: ${m.from}\n\n${m.body}')
               .join('\n\n---\n\n') ??
           thread.snippet;
+      final registry = ref.read(llmRegistryProvider);
+      final provider = registry[config.activeProviderId] ?? registry.values.first;
       final summary = await fetchEmailAI(
         prompt: 'Summarize this email thread concisely in 2-3 bullet points:\n\n$body',
-        model: config.active.selectedModel,
-        apiKey: config.active.apiKey,
+        config: config,
+        provider: provider,
       );
       ref.read(emailProvider.notifier).setAiSummary(widget.threadId, summary);
     } catch (e) {
@@ -357,12 +380,14 @@ class _ThreadDetailScreenState extends ConsumerState<_ThreadDetailScreen> {
     try {
       final last = thread.messages?.lastOrNull;
       final body = last?.body ?? thread.snippet;
+      final registry = ref.read(llmRegistryProvider);
+      final provider = registry[config.activeProviderId] ?? registry.values.first;
       final draft = await fetchEmailAI(
         prompt: 'Draft a professional, concise reply to this email. '
             'Output only the reply body, no subject line:\n\n'
             'From: ${last?.from ?? thread.from}\n\n$body',
-        model: config.active.selectedModel,
-        apiKey: config.active.apiKey,
+        config: config,
+        provider: provider,
       );
       ref.read(emailProvider.notifier).setAiDraft(widget.threadId, draft);
     } catch (e) {

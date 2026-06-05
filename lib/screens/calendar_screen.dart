@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../models/calendar_model.dart';
 import '../models/message.dart';
-import '../services/gmail_service.dart';
 import '../state/providers.dart';
 import '../widgets/provider_badge.dart';
 
@@ -57,31 +56,25 @@ class _SetupView extends ConsumerWidget {
             Icon(Icons.calendar_month_outlined,
                 size: 48, color: cs.primary.withOpacity(0.5)),
             const SizedBox(height: 16),
-            Text('Connect Google Calendar',
+            Text('Calendar not connected',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              'Uses the same Google account as Gmail. '
-              'Connect Gmail first in Settings, then come back here.',
+              'Connect your Google account in Settings → Gmail. '
+              'Calendar uses the same sign-in — no separate login needed.',
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: 13, color: cs.onSurface.withOpacity(0.55)),
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
-              onPressed: () async {
-                try {
-                  await GmailService.instance.connect();
-                  ref.read(calendarProvider.notifier).markConnected();
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e')));
-                  }
-                }
+              onPressed: () {
+                // Navigate to Settings tab (index 5)
+                // Use a messenger approach — pop all and switch tab
+                Navigator.of(context).popUntil((r) => r.isFirst);
               },
-              icon: const Icon(Icons.link),
-              label: const Text('Connect Google Account'),
+              icon: const Icon(Icons.settings_outlined),
+              label: const Text('Go to Settings'),
             ),
           ],
         ),
@@ -117,7 +110,6 @@ class _SuggestionsPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cal = ref.watch(calendarProvider);
-    final config = ref.watch(configProvider);
     final cs = Theme.of(context).colorScheme;
 
     return Container(
@@ -150,7 +142,7 @@ class _SuggestionsPanel extends ConsumerWidget {
                     child: InkWell(
                       onTap: () => ref
                           .read(calendarProvider.notifier)
-                          .refreshSuggestions(config),
+                          .refreshSuggestions(),
                       child: Icon(Icons.auto_awesome_outlined,
                           size: 15, color: cs.primary.withOpacity(0.7)),
                     ),
@@ -553,8 +545,7 @@ class _ChatPanelState extends ConsumerState<_ChatPanel> {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
     _ctrl.clear();
-    final config = ref.read(configProvider);
-    await ref.read(calendarProvider.notifier).sendChatMessage(text, config);
+    await ref.read(calendarProvider.notifier).sendChatMessage(text);
     _scrollToBottom();
   }
 

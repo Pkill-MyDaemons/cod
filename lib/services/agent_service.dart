@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../llm/agent_llm.dart';
+import '../llm/provider.dart';
+import '../models/config.dart';
 import '../models/tool.dart';
 
 const int _maxIterations = 20;
@@ -289,29 +291,8 @@ class AgentService {
 // Standalone helper used by email screen for AI summarize/draft (streaming)
 Future<String> fetchEmailAI({
   required String prompt,
-  required String model,
-  required String apiKey,
+  required AppConfig config,
+  required LLMProvider provider,
 }) async {
-  final resp = await http.post(
-    Uri.parse('https://api.anthropic.com/v1/messages'),
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: jsonEncode({
-      'model': model,
-      'max_tokens': 2048,
-      'messages': [
-        {'role': 'user', 'content': prompt},
-      ],
-    }),
-  );
-  if (resp.statusCode != 200) throw Exception('${resp.statusCode}: ${resp.body}');
-  final json = jsonDecode(resp.body) as Map<String, dynamic>;
-  final content = json['content'] as List;
-  return content
-      .where((b) => (b as Map)['type'] == 'text')
-      .map((b) => (b as Map)['text'] as String)
-      .join('');
+  return provider.complete(config: config, prompt: prompt, maxTokens: 2048);
 }
