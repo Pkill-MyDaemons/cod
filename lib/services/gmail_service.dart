@@ -208,7 +208,7 @@ class GmailService {
 
   Future<List<GmailThread>> listThreads({int maxResults = 25}) async {
     final data = await _get(
-        'threads?maxResults=$maxResults&q=-is:spam+-category:promotions&labelIds=INBOX');
+        'threads?maxResults=$maxResults&labelIds=INBOX');
     final items = data['threads'] as List? ?? [];
     final threads = <GmailThread>[];
     for (final item in items) {
