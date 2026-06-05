@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import '../services/sandbox_service.dart';
 
 export '../services/sandbox_service.dart' show SandboxType, ContainerStatus;
 
 // ── Entry types (agent conversation) ─────────────────────────────────────────
 
-enum CodeEntryType { user, assistantText, toolCall, toolResult, error }
+enum CodeEntryType { user, assistantText, toolCall, toolResult, toolOutput, error }
 
 class CodeEntry {
   final CodeEntryType type;
@@ -30,8 +31,26 @@ class CodeEntry {
       CodeEntry(type: CodeEntryType.toolCall, content: input, label: name);
   factory CodeEntry.toolResult(String name, String result) =>
       CodeEntry(type: CodeEntryType.toolResult, content: result, label: name);
+  factory CodeEntry.toolOutput(String name, String output) =>
+      CodeEntry(type: CodeEntryType.toolOutput, content: output, label: name);
   factory CodeEntry.error(String msg) =>
       CodeEntry(type: CodeEntryType.error, content: msg);
+
+  Map<String, dynamic> toJson() => {
+        'type': type.name,
+        'content': content,
+        if (label != null) 'label': label,
+        'ts': timestamp.millisecondsSinceEpoch,
+      };
+
+  factory CodeEntry.fromJson(Map<String, dynamic> j) => CodeEntry(
+        type: CodeEntryType.values.firstWhere(
+            (e) => e.name == (j['type'] as String),
+            orElse: () => CodeEntryType.assistantText),
+        content: j['content'] as String,
+        label: j['label'] as String?,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(j['ts'] as int),
+      );
 }
 
 // ── Open file tab ─────────────────────────────────────────────────────────────
@@ -129,6 +148,7 @@ class CodeNotifier extends Notifier<CodeState> {
       containerStatus: ContainerStatus.idle,
     );
     if (dir.isEmpty) return;
+    await _loadSession(dir);
 
     state = state.copyWith(containerStatus: ContainerStatus.starting);
     try {
@@ -148,14 +168,90 @@ class CodeNotifier extends Notifier<CodeState> {
       (cmd) => _sandbox.exec(cmd,
           workingDir: state.workingDir.isNotEmpty ? state.workingDir : null);
 
+  Stream<String> Function(String) get commandStreamRunner =>
+      (cmd) => _sandbox.execStream(cmd,
+          workingDir: state.workingDir.isNotEmpty ? state.workingDir : null);
+
+  // ── Persistence ────────────────────────────────────────────────────────────
+
+  Future<File> _sessionFile(String dir) async {
+    final docs = await getApplicationDocumentsDirectory();
+    final d = Directory('${docs.path}/cod/code_sessions');
+    await d.create(recursive: true);
+    final key = dir.replaceAll('/', '_').replaceAll(' ', '_');
+    return File('${d.path}/$key.json');
+  }
+
+  Future<void> _save() async {
+    final dir = state.workingDir;
+    if (dir.isEmpty) return;
+    try {
+      final f = await _sessionFile(dir);
+      await f.writeAsString(
+          jsonEncode(state.entries.map((e) => e.toJson()).toList()));
+    } catch (_) {}
+  }
+
+  Future<void> _loadSession(String dir) async {
+    try {
+      final f = await _sessionFile(dir);
+      if (!await f.exists()) return;
+      final raw = jsonDecode(await f.readAsString()) as List;
+      final entries =
+          raw.map((e) => CodeEntry.fromJson(e as Map<String, dynamic>)).toList();
+      state = state.copyWith(entries: entries);
+    } catch (_) {}
+  }
+
   // ── Agent conversation ─────────────────────────────────────────────────────
 
   void addEntry(CodeEntry entry) =>
       state = state.copyWith(entries: [...state.entries, entry]);
 
-  void setRunning(bool v) => state = state.copyWith(isRunning: v);
+  void appendCommandOutput(String line) {
+    final entries = state.entries;
+    if (entries.isNotEmpty && entries.last.type == CodeEntryType.toolOutput) {
+      final last = entries.last;
+      final updated = CodeEntry(
+        type: CodeEntryType.toolOutput,
+        content: '${last.content}\n$line',
+        label: last.label,
+        timestamp: last.timestamp,
+      );
+      state = state.copyWith(
+          entries: [...entries.sublist(0, entries.length - 1), updated]);
+    } else {
+      state = state.copyWith(
+          entries: [...entries, CodeEntry.toolOutput('run_command', line)]);
+    }
+  }
 
-  void clearConversation() => state = state.copyWith(entries: []);
+  void finalizeCommandOutput(String toolName, String result) {
+    final entries = state.entries;
+    if (entries.isNotEmpty && entries.last.type == CodeEntryType.toolOutput) {
+      final updated = CodeEntry.toolResult(toolName, result);
+      state = state.copyWith(
+          entries: [...entries.sublist(0, entries.length - 1), updated]);
+    } else {
+      state = state.copyWith(
+          entries: [...entries, CodeEntry.toolResult(toolName, result)]);
+    }
+  }
+
+  void setRunning(bool v) {
+    state = state.copyWith(isRunning: v);
+    if (!v) _save();
+  }
+
+  Future<void> clearConversation() async {
+    state = state.copyWith(entries: []);
+    if (state.workingDir.isNotEmpty) {
+      try {
+        final f = await _sessionFile(state.workingDir);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
+  }
 
   // ── File tabs ──────────────────────────────────────────────────────────────
 

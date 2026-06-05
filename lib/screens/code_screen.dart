@@ -80,6 +80,7 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
         : 'You are an expert coding assistant. Be concise and think step-by-step.';
 
     final service = AgentService();
+    bool _inStreamingCommand = false;
     await for (final event in service.run(
       initialPrompt: text,
       tools: AgentService.codeTools,
@@ -90,14 +91,23 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
       system: system,
       workingDir: workingDir.isNotEmpty ? workingDir : null,
       commandRunner: ref.read(codeProvider.notifier).commandRunner,
+      commandStreamRunner: ref.read(codeProvider.notifier).commandStreamRunner,
     )) {
       switch (event) {
         case AgentText(:final text):
           if (text.isNotEmpty) notifier.addEntry(CodeEntry.assistant(text));
         case AgentToolStart(:final call):
           notifier.addEntry(CodeEntry.toolCall(call.name, _summarise(call.input)));
+          _inStreamingCommand = call.name == 'run_command';
+        case AgentCommandOutput(:final line):
+          notifier.appendCommandOutput(line);
         case AgentToolDone(:final toolName, :final result):
-          notifier.addEntry(CodeEntry.toolResult(toolName, result));
+          if (_inStreamingCommand) {
+            notifier.finalizeCommandOutput(toolName, result);
+            _inStreamingCommand = false;
+          } else {
+            notifier.addEntry(CodeEntry.toolResult(toolName, result));
+          }
         case AgentComplete():
           break;
         case AgentError(:final message):
@@ -956,6 +966,39 @@ class _EntryTileState extends State<_EntryTile> {
                         fontFamily: 'monospace'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ),
+        ),
+      CodeEntryType.toolOutput => Container(
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E2E),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.15)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.terminal, size: 11, color: Color(0xFF4B9EF8)),
+                const SizedBox(width: 5),
+                Text('${e.label ?? 'run_command'}  · live output',
+                    style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFF4B9EF8),
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'monospace')),
+              ]),
+              const SizedBox(height: 6),
+              Text(
+                e.content,
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    color: Color(0xFFCDD6F4),
+                    height: 1.5),
               ),
             ],
           ),

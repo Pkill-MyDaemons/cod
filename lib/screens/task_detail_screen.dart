@@ -98,6 +98,8 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen>
         case AgentToolStart(:final call):
           final label = '${call.name}(${_inputSummary(call.input)})';
           setState(() => _agentLog.add(_AgentEntry.toolCall(label)));
+        case AgentCommandOutput():
+          break; // task agent doesn't stream command output
         case AgentToolDone(:final toolName, :final result):
           setState(() => _agentLog.add(_AgentEntry.toolResult(toolName, result)));
           if (toolName == 'mark_complete') {

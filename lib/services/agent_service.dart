@@ -1,6 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
 import '../llm/agent_llm.dart';
 import '../llm/provider.dart';
 import '../models/config.dart';
@@ -111,6 +111,7 @@ class AgentService {
     String? system,
     String? workingDir,
     Future<String> Function(String command)? commandRunner,
+    Stream<String> Function(String command)? commandStreamRunner,
   }) async* {
     final llm = AgentLLM();
     final messages = <Map<String, dynamic>>[
@@ -162,7 +163,21 @@ class AgentService {
       final toolResults = <Map<String, dynamic>>[];
       for (final tc in response.toolCalls) {
         yield AgentToolStart(tc);
-        final result = await _execute(tc, workingDir: workingDir, commandRunner: commandRunner);
+        String result;
+        if (tc.name == 'run_command') {
+          final cmd = tc.input['command'] as String;
+          final buf = StringBuffer();
+          final stream = commandStreamRunner != null
+              ? commandStreamRunner(cmd)
+              : _runCommandStream(cmd, workingDir);
+          await for (final line in stream) {
+            buf.writeln(line);
+            yield AgentCommandOutput(line);
+          }
+          result = buf.isEmpty ? '(no output)' : buf.toString().trimRight();
+        } else {
+          result = await _execute(tc, workingDir: workingDir, commandRunner: commandRunner);
+        }
         yield AgentToolDone(tc.name, result);
         toolResults.add({
           'type': 'tool_result',
@@ -270,6 +285,36 @@ class AgentService {
       return combined.substring(0, _maxFileBytes) + '\n... (truncated)';
     }
     return combined.isEmpty ? '(no output)' : combined;
+  }
+
+  Stream<String> _runCommandStream(String command, String? workingDir) async* {
+    if (_blockedCommands.hasMatch(command)) {
+      yield 'Blocked: command contains a potentially destructive operation.';
+      return;
+    }
+    final process = await Process.start(
+      'sh', ['-c', command],
+      workingDirectory: workingDir,
+      runInShell: false,
+    );
+    final ctrl = StreamController<String>();
+    int pending = 2;
+    void done() { if (--pending == 0) ctrl.close(); }
+    process.stdout.transform(utf8.decoder).transform(const LineSplitter())
+        .listen(ctrl.add, onDone: done, onError: (_) => done(), cancelOnError: false);
+    process.stderr.transform(utf8.decoder).transform(const LineSplitter())
+        .map((l) => 'stderr: $l')
+        .listen(ctrl.add, onDone: done, onError: (_) => done(), cancelOnError: false);
+    int totalChars = 0;
+    await for (final line in ctrl.stream) {
+      totalChars += line.length + 1;
+      if (totalChars > _maxFileBytes) {
+        yield '... (output truncated)';
+        break;
+      }
+      yield line;
+    }
+    await process.exitCode;
   }
 
   Future<String> _searchFiles(String pattern, String directory, String? workingDir) async {

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 enum SandboxType { docker, restricted }
@@ -90,12 +92,20 @@ class SandboxService {
     }
   }
 
-  // Execute a shell command in the sandbox
+  // Execute a shell command in the sandbox (blocking, returns full output)
   Future<String> exec(String command, {String? workingDir}) async {
     if (_type == SandboxType.docker && _containerId != null) {
       return _execDocker(command);
     }
     return _execRestricted(command, workingDir ?? _workingDir);
+  }
+
+  // Execute a shell command and stream output lines as they arrive
+  Stream<String> execStream(String command, {String? workingDir}) {
+    if (_type == SandboxType.docker && _containerId != null) {
+      return _execDockerStream(command);
+    }
+    return _execRestrictedStream(command, workingDir ?? _workingDir);
   }
 
   Future<String> _execDocker(String command) async {
@@ -105,6 +115,9 @@ class SandboxService {
     ).timeout(const Duration(seconds: 30));
     return _mergeOutput(r);
   }
+
+  Stream<String> _execDockerStream(String command) =>
+      _processStream(Process.start('docker', ['exec', _containerId!, 'sh', '-c', command]));
 
   Future<String> _execRestricted(String command, String? cwd) async {
     // Build a sanitised environment
@@ -123,6 +136,33 @@ class SandboxService {
       runInShell: false,
     ).timeout(const Duration(seconds: 30));
     return _mergeOutput(r);
+  }
+
+  Stream<String> _execRestrictedStream(String command, String? cwd) {
+    final env = Map<String, String>.from(Platform.environment);
+    for (final k in _stripEnv) env.remove(k);
+    env['PATH'] = '/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/opt/homebrew/sbin';
+    return _processStream(Process.start(
+      'sh', ['-c', command],
+      workingDirectory: (cwd != null && cwd.isNotEmpty) ? cwd : null,
+      environment: env,
+      runInShell: false,
+    ));
+  }
+
+  // Merges stdout and stderr of a process into a single line stream
+  static Stream<String> _processStream(Future<Process> processFuture) async* {
+    final process = await processFuture;
+    final ctrl = StreamController<String>();
+    int pending = 2;
+    void done() { if (--pending == 0) ctrl.close(); }
+    process.stdout.transform(utf8.decoder).transform(const LineSplitter())
+        .listen(ctrl.add, onDone: done, onError: (_) => done(), cancelOnError: false);
+    process.stderr.transform(utf8.decoder).transform(const LineSplitter())
+        .map((l) => 'stderr: $l')
+        .listen(ctrl.add, onDone: done, onError: (_) => done(), cancelOnError: false);
+    yield* ctrl.stream;
+    await process.exitCode;
   }
 
   String _mergeOutput(ProcessResult r) {

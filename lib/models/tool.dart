@@ -55,6 +55,11 @@ class AgentToolDone extends AgentEvent {
   const AgentToolDone(this.toolName, this.result);
 }
 
+class AgentCommandOutput extends AgentEvent {
+  final String line;
+  const AgentCommandOutput(this.line);
+}
+
 class AgentComplete extends AgentEvent {
   const AgentComplete();
 }
