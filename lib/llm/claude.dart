@@ -1,0 +1,77 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../models/message.dart';
+import 'provider.dart';
+
+class ClaudeProvider implements LLMProvider {
+  @override
+  String get id => 'claude';
+  @override
+  String get name => 'Claude';
+
+  @override
+  Stream<String> stream({
+    required List<Message> messages,
+    required String model,
+    required String apiKey,
+    String? baseUrl,
+    int maxTokens = 4096,
+  }) async* {
+    final client = http.Client();
+    try {
+      final systemContent = messages
+          .where((m) => m.role == MessageRole.system)
+          .map((m) => m.content)
+          .join('\n');
+
+      final chatMessages = messages
+          .where((m) => m.role != MessageRole.system)
+          .map((m) => {'role': m.role.name, 'content': m.content})
+          .toList();
+
+      final request = http.Request(
+          'POST', Uri.parse('https://api.anthropic.com/v1/messages'));
+      request.headers.addAll({
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      });
+      request.body = jsonEncode({
+        'model': model,
+        'max_tokens': maxTokens,
+        'stream': true,
+        if (systemContent.isNotEmpty) 'system': systemContent,
+        'messages': chatMessages,
+      });
+
+      final response = await client.send(request);
+      if (response.statusCode != 200) {
+        final body = await response.stream.bytesToString();
+        throw Exception('Claude ${response.statusCode}: $body');
+      }
+
+      String buf = '';
+      await for (final bytes in response.stream) {
+        buf += utf8.decode(bytes);
+        final lines = buf.split('\n');
+        buf = lines.removeLast();
+        for (final line in lines) {
+          if (!line.startsWith('data: ')) continue;
+          final data = line.substring(6).trim();
+          if (data.isEmpty) continue;
+          try {
+            final json = jsonDecode(data) as Map<String, dynamic>;
+            if (json['type'] == 'content_block_delta') {
+              final delta = json['delta'] as Map<String, dynamic>;
+              if (delta['type'] == 'text_delta') {
+                yield delta['text'] as String;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } finally {
+      client.close();
+    }
+  }
+}

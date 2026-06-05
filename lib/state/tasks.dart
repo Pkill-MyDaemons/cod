@@ -1,0 +1,119 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import '../models/message.dart';
+import '../models/task.dart';
+
+class TasksNotifier extends Notifier<List<Task>> {
+  @override
+  List<Task> build() {
+    Future.microtask(_load);
+    return [];
+  }
+
+  Future<File> get _file async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory('${docs.path}/cod');
+    await dir.create(recursive: true);
+    return File('${dir.path}/tasks.json');
+  }
+
+  Future<void> _load() async {
+    final f = await _file;
+    if (!await f.exists()) return;
+    try {
+      final raw = await f.readAsString();
+      final list = jsonDecode(raw) as List;
+      final tasks = list.map((t) => Task.fromJson(t as Map<String, dynamic>)).toList();
+      tasks.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      state = tasks;
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    final f = await _file;
+    await f.writeAsString(jsonEncode(state.map((t) => t.toJson()).toList()));
+  }
+
+  Future<Task> add({required String title, String description = ''}) async {
+    final t = Task(title: title, description: description);
+    state = [t, ...state];
+    await _persist();
+    return t;
+  }
+
+  Future<void> cycleStatus(String id) async {
+    state = state.map((t) {
+      if (t.id != id) return t;
+      t.status = t.status.next;
+      t.updatedAt = DateTime.now();
+      return t;
+    }).toList();
+    await _persist();
+  }
+
+  Future<void> cycleStatusTo(String id, TaskStatus target) async {
+    state = state.map((t) {
+      if (t.id != id) return t;
+      t.status = target;
+      t.updatedAt = DateTime.now();
+      return t;
+    }).toList();
+    await _persist();
+  }
+
+  Future<void> addThreadMessage(String taskId, Message msg) async {
+    state = state.map((t) {
+      if (t.id != taskId) return t;
+      t.thread.add(msg);
+      t.updatedAt = DateTime.now();
+      if (msg.role == MessageRole.assistant) t.hasUnread = true;
+      return t;
+    }).toList();
+    await _persist();
+  }
+
+  void updateThreadStreaming(String taskId, String content) {
+    state = state.map((t) {
+      if (t.id != taskId || t.thread.isEmpty) return t;
+      t.thread.last.content = content;
+      return t;
+    }).toList();
+  }
+
+  Future<void> finalizeThreadStreaming(String taskId) async {
+    state = state.map((t) {
+      if (t.id != taskId || t.thread.isEmpty) return t;
+      t.thread.last.isStreaming = false;
+      t.updatedAt = DateTime.now();
+      t.hasUnread = true;
+      return t;
+    }).toList();
+    await _persist();
+  }
+
+  void markRead(String id) {
+    state = state.map((t) {
+      if (t.id != id) return t;
+      t.hasUnread = false;
+      return t;
+    }).toList();
+  }
+
+  Future<void> delete(String id) async {
+    state = state.where((t) => t.id != id).toList();
+    await _persist();
+  }
+
+  Future<void> update(String id, {String? title, String? description}) async {
+    state = state.map((t) {
+      if (t.id != id) return t;
+      if (title != null) t.title = title;
+      if (description != null) t.description = description;
+      t.updatedAt = DateTime.now();
+      return t;
+    }).toList();
+    await _persist();
+  }
+}
