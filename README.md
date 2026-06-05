@@ -76,7 +76,7 @@ Download the `.dmg` from [Releases](https://github.com/Pkill-MyDaemons/cod/relea
 
 **"Apple could not verify Cod is free of malware"**
 
-Cod is not yet notarized with Apple (that requires a $99/year developer account). To open it anyway:
+Cod is not yet notarized with Apple (that requires a $99/year developer account—this is a free open-source project). To open it anyway:
 
 **Option A — System Settings:**
 1. Try to open Cod — the warning appears
