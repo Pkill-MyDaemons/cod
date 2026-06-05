@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/message.dart';
+import '../utils/rate_limit.dart';
 import 'provider.dart';
 
 class GeminiProvider implements LLMProvider {
@@ -37,9 +38,7 @@ class GeminiProvider implements LLMProvider {
               })
           .toList();
 
-      final request = http.Request('POST', Uri.parse(url));
-      request.headers['content-type'] = 'application/json';
-      request.body = jsonEncode({
+      final bodyJson = jsonEncode({
         'contents': contents,
         if (systemParts.isNotEmpty)
           'systemInstruction': {
@@ -50,7 +49,14 @@ class GeminiProvider implements LLMProvider {
         'generationConfig': {'maxOutputTokens': maxTokens},
       });
 
-      final response = await client.send(request);
+      http.Request build() {
+        final r = http.Request('POST', Uri.parse(url));
+        r.headers['content-type'] = 'application/json';
+        r.body = bodyJson;
+        return r;
+      }
+
+      final response = await sendWithRetry(client, build);
       if (response.statusCode != 200) {
         final body = await response.stream.bytesToString();
         throw Exception('Gemini ${response.statusCode}: $body');

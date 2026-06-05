@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/message.dart';
+import '../utils/rate_limit.dart';
 import 'provider.dart';
 
 class OllamaProvider implements LLMProvider {
@@ -21,9 +22,7 @@ class OllamaProvider implements LLMProvider {
         (baseUrl != null && baseUrl.isNotEmpty) ? baseUrl : 'http://localhost:11434';
     final client = http.Client();
     try {
-      final request = http.Request('POST', Uri.parse('$base/api/chat'));
-      request.headers['content-type'] = 'application/json';
-      request.body = jsonEncode({
+      final bodyJson = jsonEncode({
         'model': model,
         'stream': true,
         'messages': messages
@@ -38,7 +37,14 @@ class OllamaProvider implements LLMProvider {
             .toList(),
       });
 
-      final response = await client.send(request);
+      http.Request build() {
+        final r = http.Request('POST', Uri.parse('$base/api/chat'));
+        r.headers['content-type'] = 'application/json';
+        r.body = bodyJson;
+        return r;
+      }
+
+      final response = await sendWithRetry(client, build);
       if (response.statusCode != 200) {
         final body = await response.stream.bytesToString();
         throw Exception('Ollama ${response.statusCode}: $body');

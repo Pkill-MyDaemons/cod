@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/message.dart';
+import '../utils/rate_limit.dart';
 import 'provider.dart';
 
 class GroqProvider implements LLMProvider {
@@ -35,12 +36,7 @@ class GroqProvider implements LLMProvider {
   }) async* {
     final client = http.Client();
     try {
-      final request = http.Request('POST', Uri.parse(url));
-      request.headers.addAll({
-        'authorization': 'Bearer $apiKey',
-        'content-type': 'application/json',
-      });
-      request.body = jsonEncode({
+      final bodyJson = jsonEncode({
         'model': model,
         'max_tokens': maxTokens,
         'stream': true,
@@ -49,7 +45,17 @@ class GroqProvider implements LLMProvider {
             .toList(),
       });
 
-      final response = await client.send(request);
+      http.Request build() {
+        final r = http.Request('POST', Uri.parse(url));
+        r.headers.addAll({
+          'authorization': 'Bearer $apiKey',
+          'content-type': 'application/json',
+        });
+        r.body = bodyJson;
+        return r;
+      }
+
+      final response = await sendWithRetry(client, build);
       if (response.statusCode != 200) {
         final body = await response.stream.bytesToString();
         throw Exception('API ${response.statusCode}: $body');

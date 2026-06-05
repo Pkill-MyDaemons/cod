@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/tool.dart';
+import '../utils/rate_limit.dart';
 
 class AgentLLM {
   Future<AgentLLMResponse> call({
@@ -50,7 +51,7 @@ class AgentLLM {
       'tools': tools.map((t) => t.toClaudeJson()).toList(),
       'messages': messages,
     };
-    final resp = await http.post(Uri.parse(url), headers: {
+    final resp = await postWithRetry(Uri.parse(url), headers: {
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
@@ -92,7 +93,7 @@ class AgentLLM {
       'tools': tools.map((t) => t.toOpenAIJson()).toList(),
       'messages': oaiMessages,
     };
-    final resp = await http.post(Uri.parse(url), headers: {
+    final resp = await postWithRetry(Uri.parse(url), headers: {
       if (apiKey.isNotEmpty) 'authorization': 'Bearer $apiKey',
       'content-type': 'application/json',
     }, body: jsonEncode(body));
@@ -133,7 +134,7 @@ class AgentLLM {
       'tools': [{'functionDeclarations': tools.map((t) => t.toGeminiJson()).toList()}],
       'generationConfig': {'maxOutputTokens': maxTokens},
     };
-    final resp = await http.post(Uri.parse(url), headers: {'content-type': 'application/json'},
+    final resp = await postWithRetry(Uri.parse(url), headers: {'content-type': 'application/json'},
         body: jsonEncode(body));
     if (resp.statusCode != 200) throw Exception('Gemini ${resp.statusCode}: ${resp.body}');
 

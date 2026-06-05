@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/message.dart';
+import '../utils/rate_limit.dart';
 import 'provider.dart';
 
 class ClaudeProvider implements LLMProvider {
@@ -29,14 +30,7 @@ class ClaudeProvider implements LLMProvider {
           .map((m) => {'role': m.role.name, 'content': m.content})
           .toList();
 
-      final request = http.Request(
-          'POST', Uri.parse('https://api.anthropic.com/v1/messages'));
-      request.headers.addAll({
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      });
-      request.body = jsonEncode({
+      final bodyJson = jsonEncode({
         'model': model,
         'max_tokens': maxTokens,
         'stream': true,
@@ -44,7 +38,18 @@ class ClaudeProvider implements LLMProvider {
         'messages': chatMessages,
       });
 
-      final response = await client.send(request);
+      http.Request build() {
+        final r = http.Request('POST', Uri.parse('https://api.anthropic.com/v1/messages'));
+        r.headers.addAll({
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        });
+        r.body = bodyJson;
+        return r;
+      }
+
+      final response = await sendWithRetry(client, build);
       if (response.statusCode != 200) {
         final body = await response.stream.bytesToString();
         throw Exception('Claude ${response.statusCode}: $body');
