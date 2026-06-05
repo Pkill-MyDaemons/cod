@@ -14,6 +14,17 @@ class Tool {
         'description': description,
         'input_schema': inputSchema,
       };
+
+  Map<String, dynamic> toOpenAIJson() => {
+        'type': 'function',
+        'function': {'name': name, 'description': description, 'parameters': inputSchema},
+      };
+
+  Map<String, dynamic> toGeminiJson() => {
+        'name': name,
+        'description': description,
+        'parameters': inputSchema,
+      };
 }
 
 class ToolCall {

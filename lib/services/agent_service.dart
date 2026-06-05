@@ -106,10 +106,10 @@ class AgentService {
     required List<Tool> tools,
     required String model,
     required String apiKey,
+    required String providerId,
+    String? baseUrl,
     String? system,
     String? workingDir,
-    /// Optional override — if provided, run_command uses this instead of
-    /// the built-in Process.run. Lets the caller inject a sandbox executor.
     Future<String> Function(String command)? commandRunner,
   }) async* {
     final llm = AgentLLM();
@@ -125,6 +125,8 @@ class AgentService {
           tools: tools,
           model: model,
           apiKey: apiKey,
+          providerId: providerId,
+          baseUrl: baseUrl,
           system: system,
         );
       } catch (e) {

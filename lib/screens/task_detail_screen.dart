@@ -86,6 +86,8 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen>
       tools: AgentService.taskTools,
       model: config.active.selectedModel,
       apiKey: config.active.apiKey,
+      providerId: config.activeProviderId,
+      baseUrl: config.active.baseUrl,
       system: system,
     )) {
       switch (event) {

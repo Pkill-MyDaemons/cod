@@ -85,6 +85,8 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
       tools: AgentService.codeTools,
       model: config.active.selectedModel,
       apiKey: config.active.apiKey,
+      providerId: config.activeProviderId,
+      baseUrl: config.active.baseUrl,
       system: system,
       workingDir: workingDir.isNotEmpty ? workingDir : null,
       commandRunner: ref.read(codeProvider.notifier).commandRunner,
