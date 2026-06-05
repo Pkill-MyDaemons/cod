@@ -5,6 +5,7 @@ import 'screens/chat_screen.dart';
 import 'screens/email_screen.dart';
 import 'screens/code_screen.dart';
 import 'screens/tasks_screen.dart';
+import 'screens/calendar_screen.dart';
 import 'screens/settings_screen.dart';
 
 class CodApp extends StatelessWidget {
@@ -34,6 +35,7 @@ class _ShellState extends ConsumerState<_Shell> {
   static const _screens = [
     ChatScreen(),
     EmailScreen(),
+    CalendarScreen(),
     CodeScreen(),
     TasksScreen(),
     SettingsScreen(),
@@ -56,6 +58,11 @@ class _ShellState extends ConsumerState<_Shell> {
             icon: Icon(Icons.mail_outline),
             selectedIcon: Icon(Icons.mail),
             label: 'Email',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
+            label: 'Calendar',
           ),
           NavigationDestination(
             icon: Icon(Icons.code_outlined),

@@ -11,6 +11,7 @@ import 'tasks.dart';
 import 'config.dart';
 import 'email.dart';
 import 'code.dart';
+import 'calendar.dart';
 
 final llmRegistryProvider = Provider<Map<String, LLMProvider>>((_) => {
       'claude': ClaudeProvider(),
@@ -33,3 +34,6 @@ final emailProvider =
 
 final codeProvider =
     NotifierProvider<CodeNotifier, CodeState>(CodeNotifier.new);
+
+final calendarProvider =
+    NotifierProvider<CalendarNotifier, CalendarState>(CalendarNotifier.new);

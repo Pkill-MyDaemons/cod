@@ -9,7 +9,9 @@ const _authUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
 const _tokenUrl = 'https://oauth2.googleapis.com/token';
 const _gmailBase = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const _scope =
-    'https://www.googleapis.com/auth/gmail.modify email';
+    'https://www.googleapis.com/auth/gmail.modify '
+    'https://www.googleapis.com/auth/calendar '
+    'email';
 
 const _prefClientId = 'gmail_client_id';
 const _prefClientSecret = 'gmail_client_secret';
@@ -23,6 +25,9 @@ class GmailService {
   GmailService._();
 
   // ── credentials ─────────────────────────────────────────────────────────────
+
+  // Exposed so GCalService can reuse the same token
+  Future<String> get accessToken => _accessToken();
 
   Future<bool> get isConnected async {
     final prefs = await SharedPreferences.getInstance();
