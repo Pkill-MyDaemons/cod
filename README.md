@@ -39,6 +39,11 @@ AI-powered developer assistant for macOS — conversational chat, Gmail, Google 
 - Per-task **Agent tab**: runs the code agent autonomously; calls `mark_complete` when done
 - One-tap ▶ button runs a task automatically
 
+### Minnow companion app
+Control the task system from your iPhone or Android phone — create tasks, trigger the agent, and watch output stream live from anywhere.
+
+→ **[github.com/Pkill-MyDaemons/minnow](https://github.com/Pkill-MyDaemons/minnow)**
+
 ---
 
 ## Setup
@@ -175,6 +180,36 @@ flutter build ipa --release
 
 # Windows (must run on Windows)
 flutter build windows --release
+```
+
+### Minnow companion app
+
+Cod starts a Supabase-backed sync service on launch. To pair with Minnow:
+
+1. Open **Settings → Minnow** — a QR code appears
+2. In Minnow, tap **Scan QR code**
+
+Both apps use the same Supabase project as a relay (free tier, no server to run). If building from source, add your own Supabase credentials to `.env`:
+
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+```
+
+Then create the tasks table in your Supabase SQL editor:
+
+```sql
+create table tasks (
+  id text primary key,
+  session_id text not null,
+  title text not null,
+  description text not null default '',
+  status text not null default 'todo',
+  has_unread boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+alter publication supabase_realtime add table tasks;
+alter table tasks disable row level security;
 ```
 
 ### Google OAuth credentials (for building from source)
