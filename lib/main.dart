@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:highlight/highlight.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'config/google_oauth.dart';
 import 'package:highlight/languages/bash.dart';
 import 'package:highlight/languages/cpp.dart';
 import 'package:highlight/languages/css.dart';
@@ -23,7 +25,9 @@ import 'package:highlight/languages/xml.dart';
 import 'package:highlight/languages/yaml.dart';
 import 'app.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Supabase.initialize(url: kSupabaseUrl, anonKey: kSupabaseAnonKey);
   _registerLanguages();
   runApp(const ProviderScope(child: CodApp()));
 }

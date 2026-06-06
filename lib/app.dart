@@ -36,7 +36,7 @@ class _ShellState extends ConsumerState<_Shell> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(companionServerProvider).start());
+    Future.microtask(() => ref.read(minnowSyncProvider).start());
   }
 
   static const _screens = [

@@ -351,9 +351,8 @@ class _CompanionCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
-    final server = ref.read(companionServerProvider);
-    final url = server.wsUrl;
-    final count = server.connectedCount;
+    final sync = ref.read(minnowSyncProvider);
+    final qr = sync.qrData;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -364,29 +363,16 @@ class _CompanionCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Text('Minnow', style: TextStyle(fontWeight: FontWeight.w700)),
-              const Spacer(),
-              if (count > 0)
-                Row(children: [
-                  Container(width: 6, height: 6,
-                      decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.green)),
-                  const SizedBox(width: 5),
-                  Text('$count connected',
-                      style: TextStyle(fontSize: 11, color: cs.onSurface.withValues(alpha: 0.6))),
-                ]),
-            ],
-          ),
+          const Text('Minnow', style: TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
           Text(
-            'Open Minnow on your phone and scan this code to connect over Wi-Fi.',
+            'Open Minnow on your phone and scan this code. Works anywhere — Wi-Fi or cellular.',
             style: TextStyle(fontSize: 11, color: cs.onSurface.withValues(alpha: 0.45)),
           ),
           const SizedBox(height: 16),
           Center(
             child: QrImageView(
-              data: url,
+              data: qr,
               version: QrVersions.auto,
               size: 160,
               backgroundColor: Colors.white,
@@ -395,17 +381,19 @@ class _CompanionCard extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           GestureDetector(
-            onTap: () => Clipboard.setData(ClipboardData(text: url)),
+            onTap: () => Clipboard.setData(ClipboardData(text: sync.sessionId)),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(Icons.copy, size: 12, color: cs.onSurface.withValues(alpha: 0.4)),
                 const SizedBox(width: 5),
-                Text(url,
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                        color: cs.onSurface.withValues(alpha: 0.5))),
+                Text(
+                  'Session: ${sync.sessionId.substring(0, 8)}…',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      color: cs.onSurface.withValues(alpha: 0.5)),
+                ),
               ],
             ),
           ),

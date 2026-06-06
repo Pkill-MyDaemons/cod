@@ -4,12 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/message.dart';
 import '../models/task.dart';
-import '../services/companion_server.dart';
+import '../services/minnow_sync.dart';
 import 'providers.dart';
 
 class TasksNotifier extends Notifier<List<Task>> {
-  CompanionServer get _companion =>
-      ref.read(companionServerProvider);
+  MinnowSync get _sync => ref.read(minnowSyncProvider);
 
   @override
   List<Task> build() {
@@ -33,13 +32,14 @@ class TasksNotifier extends Notifier<List<Task>> {
       final tasks = list.map((t) => Task.fromJson(t as Map<String, dynamic>)).toList();
       tasks.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       state = tasks;
+      _sync.syncAllTasks(tasks);
     } catch (_) {}
   }
 
   Future<void> _persist() async {
     final f = await _file;
     await f.writeAsString(jsonEncode(state.map((t) => t.toJson()).toList()));
-    _companion.broadcastTaskList();
+    _sync.syncAllTasks(state);
   }
 
   Future<Task> add({required String title, String description = ''}) async {
@@ -110,6 +110,7 @@ class TasksNotifier extends Notifier<List<Task>> {
   Future<void> delete(String id) async {
     state = state.where((t) => t.id != id).toList();
     await _persist();
+    _sync.deleteTask(id);
   }
 
   Future<void> update(String id, {String? title, String? description}) async {
