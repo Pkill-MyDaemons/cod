@@ -6,6 +6,7 @@ import '../llm/groq.dart';
 import '../llm/ollama.dart';
 import '../models/config.dart';
 import '../models/task.dart';
+import '../services/companion_server.dart';
 import 'sessions.dart';
 import 'tasks.dart';
 import 'config.dart';
@@ -37,3 +38,9 @@ final codeProvider =
 
 final calendarProvider =
     NotifierProvider<CalendarNotifier, CalendarState>(CalendarNotifier.new);
+
+final companionServerProvider = Provider<CompanionServer>((ref) {
+  final server = CompanionServer(ref);
+  ref.onDispose(server.stop);
+  return server;
+});

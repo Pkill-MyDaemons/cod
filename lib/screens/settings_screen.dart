@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../services/gmail_service.dart';
 import '../state/providers.dart';
 
@@ -35,6 +37,10 @@ class SettingsScreen extends ConsumerWidget {
           _SectionHeader('Gmail'),
           const SizedBox(height: 8),
           const _GmailCard(),
+          const SizedBox(height: 24),
+          _SectionHeader('Minnow companion'),
+          const SizedBox(height: 8),
+          const _CompanionCard(),
         ],
       ),
     );
@@ -331,6 +337,78 @@ class _GmailCardState extends ConsumerState<_GmailCard> {
               label: const Text('Connect Google Account'),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Companion / Minnow card ───────────────────────────────────────────────────
+
+class _CompanionCard extends ConsumerWidget {
+  const _CompanionCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    final server = ref.read(companionServerProvider);
+    final url = server.wsUrl;
+    final count = server.connectedCount;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('Minnow', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Spacer(),
+              if (count > 0)
+                Row(children: [
+                  Container(width: 6, height: 6,
+                      decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.green)),
+                  const SizedBox(width: 5),
+                  Text('$count connected',
+                      style: TextStyle(fontSize: 11, color: cs.onSurface.withValues(alpha: 0.6))),
+                ]),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Open Minnow on your phone and scan this code to connect over Wi-Fi.',
+            style: TextStyle(fontSize: 11, color: cs.onSurface.withValues(alpha: 0.45)),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: QrImageView(
+              data: url,
+              version: QrVersions.auto,
+              size: 160,
+              backgroundColor: Colors.white,
+              padding: const EdgeInsets.all(8),
+            ),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => Clipboard.setData(ClipboardData(text: url)),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.copy, size: 12, color: cs.onSurface.withValues(alpha: 0.4)),
+                const SizedBox(width: 5),
+                Text(url,
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        color: cs.onSurface.withValues(alpha: 0.5))),
+              ],
+            ),
+          ),
         ],
       ),
     );

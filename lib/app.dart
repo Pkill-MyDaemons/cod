@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'state/providers.dart';
 import 'theme.dart';
 import 'screens/chat_screen.dart';
 import 'screens/email_screen.dart';
@@ -31,6 +32,12 @@ class _Shell extends ConsumerStatefulWidget {
 
 class _ShellState extends ConsumerState<_Shell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() => ref.read(companionServerProvider).start());
+  }
 
   static const _screens = [
     ChatScreen(),

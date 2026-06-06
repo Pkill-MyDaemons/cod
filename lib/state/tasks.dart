@@ -4,8 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/message.dart';
 import '../models/task.dart';
+import '../services/companion_server.dart';
+import 'providers.dart';
 
 class TasksNotifier extends Notifier<List<Task>> {
+  CompanionServer get _companion =>
+      ref.read(companionServerProvider);
+
   @override
   List<Task> build() {
     Future.microtask(_load);
@@ -34,6 +39,7 @@ class TasksNotifier extends Notifier<List<Task>> {
   Future<void> _persist() async {
     final f = await _file;
     await f.writeAsString(jsonEncode(state.map((t) => t.toJson()).toList()));
+    _companion.broadcastTaskList();
   }
 
   Future<Task> add({required String title, String description = ''}) async {
