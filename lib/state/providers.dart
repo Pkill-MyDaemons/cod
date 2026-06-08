@@ -13,6 +13,7 @@ import 'config.dart';
 import 'email.dart';
 import 'code.dart';
 import 'calendar.dart';
+import 'update.dart';
 
 final llmRegistryProvider = Provider<Map<String, LLMProvider>>((_) => {
       'claude': ClaudeProvider(),
@@ -38,6 +39,9 @@ final codeProvider =
 
 final calendarProvider =
     NotifierProvider<CalendarNotifier, CalendarState>(CalendarNotifier.new);
+
+final updateProvider =
+    NotifierProvider<UpdateNotifier, UpdateState>(UpdateNotifier.new);
 
 final minnowSyncProvider = Provider<MinnowSync>((ref) {
   final sync = MinnowSync(ref);

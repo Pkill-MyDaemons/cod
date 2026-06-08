@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/gmail_service.dart';
 import '../state/providers.dart';
 
@@ -11,12 +12,17 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final config = ref.watch(configProvider);
+    final update = ref.watch(updateProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (update.hasUpdate) ...[
+            _UpdateBanner(update: update),
+            const SizedBox(height: 16),
+          ],
           _SectionHeader('Active provider'),
           const SizedBox(height: 8),
           _ProviderSelector(
@@ -41,6 +47,10 @@ class SettingsScreen extends ConsumerWidget {
           _SectionHeader('Minnow companion'),
           const SizedBox(height: 8),
           const _CompanionCard(),
+          const SizedBox(height: 24),
+          _SectionHeader('About'),
+          const SizedBox(height: 8),
+          _AboutCard(update: update),
         ],
       ),
     );
@@ -334,6 +344,101 @@ class _GmailCardState extends ConsumerState<_GmailCard> {
               label: const Text('Connect Google Account'),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Update banner ─────────────────────────────────────────────────────────────
+
+class _UpdateBanner extends StatelessWidget {
+  final dynamic update;
+  const _UpdateBanner({required this.update});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final latestVersion = update.info?.latestVersion ?? '';
+    final releaseUrl = update.info?.releaseUrl ?? '';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.primary.withOpacity(0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.system_update_outlined, size: 18, color: cs.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'v$latestVersion is available',
+              style: TextStyle(fontWeight: FontWeight.w600, color: cs.primary, fontSize: 13),
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: cs.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: releaseUrl.isNotEmpty
+                ? () => launchUrl(Uri.parse(releaseUrl))
+                : null,
+            child: const Text('Download', style: TextStyle(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── About card ────────────────────────────────────────────────────────────────
+
+class _AboutCard extends ConsumerWidget {
+  final dynamic update;
+  const _AboutCard({required this.update});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    final version = update.currentVersion;
+    final isChecking = update.isChecking;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Text(
+            version.isEmpty ? 'Cod' : 'Cod v$version',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const Spacer(),
+          if (isChecking)
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 1.5),
+            )
+          else
+            GestureDetector(
+              onTap: () => ref.read(updateProvider.notifier).checkForUpdates(force: true),
+              child: Text(
+                update.hasUpdate ? 'Update available' : 'Check for updates',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: update.hasUpdate ? cs.primary : cs.onSurface.withOpacity(0.5),
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
         ],
       ),
     );

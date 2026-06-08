@@ -76,8 +76,11 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
     final system = workingDir.isNotEmpty
         ? 'You are an expert coding assistant with access to file system and shell tools.\n'
           'Working directory: $workingDir\n'
-          'Be concise. Use tools to understand the codebase before answering.'
-        : 'You are an expert coding assistant. Be concise and think step-by-step.';
+          'Be concise. Always read a file with read_file before modifying it. '
+          'When editing existing files use str_replace_file — it is safer and only changes what you intend. '
+          'Only use write_file to create brand-new files.'
+        : 'You are an expert coding assistant. Be concise and think step-by-step. '
+          'When editing existing files use str_replace_file. Only use write_file for new files.';
 
     final service = AgentService();
     bool _inStreamingCommand = false;

@@ -5,6 +5,7 @@ import '../llm/agent_llm.dart';
 import '../llm/provider.dart';
 import '../models/config.dart';
 import '../models/tool.dart';
+import 'package:http/http.dart' as http;
 
 const int _maxIterations = 20;
 const int _maxFileBytes = 32768;
@@ -13,6 +14,118 @@ final _blockedCommands = RegExp(
   r'\b(sudo|rm\s+-rf|dd\s+if|mkfs|format|fdisk)\b',
   caseSensitive: false,
 );
+
+/// A background daemon service that continuously monitors and executes tasks
+class TaskDaemon {
+  final List<Duration> _intervals = [];
+  final StreamController<String> _statusStream = StreamController<String>.broadcast();
+  Timer? _timer;
+  bool _running = false;
+
+  Stream<String> get statusStream => _statusStream.stream;
+
+  Stream<String> start({
+    required String initialPrompt,
+    required List<Tool> tools,
+    required String model,
+    required String apiKey,
+    required String providerId,
+    String? baseUrl,
+    String? system,
+    String? workingDir,
+    Duration interval = const Duration(seconds: 10),
+  }) async* {
+    if (_running) {
+      throw StateError('Daemon is already running');
+    }
+
+    _running = true;
+    _intervals.clear();
+    _intervals.add(interval);
+
+    _statusStream.add('Daemon started with interval: $interval');
+    yield* _executeIteration(
+      initialPrompt: initialPrompt,
+      tools: tools,
+      model: model,
+      apiKey: apiKey,
+      providerId: providerId,
+      baseUrl: baseUrl,
+      system: system,
+      workingDir: workingDir,
+    );
+
+    // Continue with periodic execution
+    for (int i = 1; i <= 5; i++) {
+      await Future.delayed(interval);
+      if (!_running) break;
+      
+      _statusStream.add('Iteration $i starting...');
+      yield* _executeIteration(
+        initialPrompt: initialPrompt,
+        tools: tools,
+        model: model,
+        apiKey: apiKey,
+        providerId: providerId,
+        baseUrl: baseUrl,
+        system: system,
+        workingDir: workingDir,
+      );
+      _statusStream.add('Iteration $i completed');
+    }
+
+    _statusStream.add('Daemon stopped');
+  }
+
+  Stream<String> _executeIteration({
+    required String initialPrompt,
+    required List<Tool> tools,
+    required String model,
+    required String apiKey,
+    required String providerId,
+    String? baseUrl,
+    String? system,
+    String? workingDir,
+  }) async* {
+    try {
+      final agentService = AgentService();
+      final stream = agentService.run(
+        initialPrompt: initialPrompt,
+        tools: tools,
+        model: model,
+        apiKey: apiKey,
+        providerId: providerId,
+        baseUrl: baseUrl,
+        system: system,
+        workingDir: workingDir,
+      );
+
+      await for (final event in stream) {
+        if (event is AgentText) {
+          yield event.text;
+        } else if (event is AgentComplete) {
+          yield 'Task completed';
+        } else if (event is AgentError) {
+          yield 'Error: ${event.message}';
+        } else if (event is AgentToolDone) {
+          yield 'Tool ${event.toolName} done: ${event.result.substring(0, event.result.length.clamp(0, 100))}';
+        } else if (event is AgentToolStart) {
+          yield 'Starting tool: ${event.call.name}';
+        }
+      }
+    } catch (e) {
+      yield 'Daemon iteration error: $e';
+    }
+  }
+
+  void stop() {
+    _running = false;
+    _timer?.cancel();
+    _statusStream.close();
+  }
+
+  bool get isRunning => _running;
+}
 
 class AgentService {
   static final List<Tool> codeTools = [
@@ -28,8 +141,25 @@ class AgentService {
       },
     ),
     Tool(
+      name: 'str_replace_file',
+      description: 'Edit an existing file by replacing an exact string. '
+          'Reads the file first, replaces the first occurrence of old_string with new_string, and saves. '
+          'Prefer this over write_file when modifying existing files — it is safer and only changes what you intend.',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string', 'description': 'File path (relative to working dir or absolute).'},
+          'old_string': {'type': 'string', 'description': 'Exact text to find. Must be unique in the file.'},
+          'new_string': {'type': 'string', 'description': 'Text to replace it with.'},
+        },
+        'required': ['path', 'old_string', 'new_string'],
+      },
+    ),
+    Tool(
       name: 'write_file',
-      description: 'Write (or overwrite) a file with given content.',
+      description: 'Write (or overwrite) a file with given content. '
+          'Use only for new files or complete rewrites. '
+          'For modifying existing files, use str_replace_file instead.',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -97,6 +227,26 @@ class AgentService {
           'summary': {'type': 'string', 'description': 'Brief summary of what was accomplished.'},
         },
         'required': ['summary'],
+      },
+    ),
+    Tool(
+      name: 'web_search',
+      description: 'Search the web for information using DuckDuckGo. Returns search results with titles, snippets, and URLs.',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'query': {
+            'type': 'string',
+            'description': 'The search query to look up on the web',
+          },
+          'numResults': {
+            'type': 'integer',
+            'description': 'Number of results to return (default: 5, max: 10)',
+            'default': 5,
+            'maximum': 10,
+          },
+        },
+        'required': ['query'],
       },
     ),
   ];
@@ -199,6 +349,11 @@ class AgentService {
     try {
       return switch (tc.name) {
         'read_file' => _readFile(tc.input['path'] as String, workingDir),
+        'str_replace_file' => _strReplaceFile(
+            tc.input['path'] as String,
+            tc.input['old_string'] as String,
+            tc.input['new_string'] as String,
+            workingDir),
         'write_file' => _writeFile(
             tc.input['path'] as String,
             tc.input['content'] as String,
@@ -215,6 +370,9 @@ class AgentService {
             workingDir),
         'create_directory' => _createDir(tc.input['path'] as String, workingDir),
         'mark_complete' => 'Task marked complete: ${tc.input['summary']}',
+        'web_search' => _webSearch(
+            tc.input['query'] as String,
+            (tc.input['numResults'] as int?) ?? 5),
         _ => 'Unknown tool: ${tc.name}',
       };
     } catch (e) {
@@ -240,6 +398,19 @@ class AgentService {
       return '$text\n\n... (truncated — ${bytes.length - _maxFileBytes} bytes omitted)';
     }
     return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  Future<String> _strReplaceFile(
+      String path, String oldString, String newString, String? workingDir) async {
+    final full = _resolve(path, workingDir);
+    final f = File(full);
+    if (!await f.exists()) return 'File not found: $full';
+    final original = await f.readAsString();
+    if (!original.contains(oldString)) {
+      return 'old_string not found in $full — no changes made.';
+    }
+    await f.writeAsString(original.replaceFirst(oldString, newString));
+    return 'Replaced in $full';
   }
 
   Future<String> _writeFile(String path, String content, String? workingDir) async {
@@ -339,6 +510,99 @@ class AgentService {
     final full = _resolve(path, workingDir);
     await Directory(full).create(recursive: true);
     return 'Created directory: $full';
+  }
+
+  /// Web search using DuckDuckGo Instant Answer API
+  /// Returns structured results including instant answers and related topics
+  Future<String> _webSearch(String query, int numResults) async {
+    // Sanitize numResults to ensure it's reasonable
+    final normalizedNumResults = numResults.clamp(1, 10);
+    
+    try {
+      // URL-encode the query
+      final encodedQuery = Uri.encodeComponent(query);
+      
+      // Use DuckDuckGo's Instant Answer API (CORS-friendly, returns JSON)
+      final url = Uri.parse('https://api.duckduckgo.com/?q=$encodedQuery&format=json&pretty=1');
+      
+      // Make the request with a timeout
+      final response = await http.get(
+        url,
+        headers: {'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        
+        final formattedResults = StringBuffer();
+        
+        // Get the main abstract/answer
+        final abstractTitle = data['Abstract'] as String?;
+        final abstractText = data['AbstractText'] as String?;
+        final imageUrl = data['Image'] as String?;
+        
+        if (abstractTitle != null) {
+          formattedResults.writeln('=== ${abstractTitle} ===');
+          formattedResults.writeln(abstractText ?? '');
+          if (imageUrl != null) {
+            formattedResults.writeln('![Image]($imageUrl)');
+          }
+          formattedResults.writeln();
+        } else if (abstractText != null) {
+          formattedResults.writeln('Answer: $abstractText');
+          formattedResults.writeln();
+        }
+        
+        // Get related topics
+        final relatedTopics = data['RelatedTopics'] as List<dynamic>? ?? [];
+        
+        if (relatedTopics.isNotEmpty && normalizedNumResults > 0) {
+          formattedResults.writeln('=== Related Topics ===');
+          int count = 0;
+          for (final topic in relatedTopics) {
+            final text = topic['Text'] as String?;
+            
+            if (text != null) {
+              count++;
+              formattedResults.writeln('${count}. $text');
+              
+              // Try to get the URL from Icon data
+              final dataObj = topic['Data'] as List? ?? [];
+              if (dataObj.isNotEmpty) {
+                final firstData = dataObj[0];
+                if (firstData is Map) {
+                  final iconData = firstData['Icon'] as Map? ?? {};
+                  final link = iconData['32'] ?? iconData['60'] ?? iconData['100'];
+                  if (link != null && link is String) {
+                    formattedResults.writeln('   → $link');
+                  }
+                }
+              }
+            }
+            
+            if (count >= normalizedNumResults) break;
+          }
+        } else if (abstractTitle == null) {
+          formattedResults.writeln('No instant answer found for this query.');
+        } else {
+          formattedResults.writeln('No related topics found.');
+        }
+        
+        return formattedResults.toString().trim();
+      } else {
+        return 'Web search failed with status: ${response.statusCode}';
+      }
+    } on TimeoutException {
+      return 'Web search timed out.';
+    } on http.ClientException catch (e) {
+      return 'Web search network error: $e';
+    } on FormatException {
+      return 'Web search returned unexpected format.';
+    } on StateError catch (e) {
+      return 'Web search data error: $e';
+    } catch (e) {
+      return 'Web search error: $e';
+    }
   }
 }
 
