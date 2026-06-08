@@ -260,11 +260,14 @@ class AgentService {
     String? baseUrl,
     String? system,
     String? workingDir,
+    List<Map<String, dynamic>> history = const [],
+    void Function(List<Map<String, dynamic>>)? onMessagesUpdate,
     Future<String> Function(String command)? commandRunner,
     Stream<String> Function(String command)? commandStreamRunner,
   }) async* {
     final llm = AgentLLM();
     final messages = <Map<String, dynamic>>[
+      ...history,
       {'role': 'user', 'content': initialPrompt},
     ];
 
@@ -290,6 +293,7 @@ class AgentService {
       }
 
       if (!response.hasToolCalls) {
+        onMessagesUpdate?.call(List.unmodifiable(messages));
         yield const AgentComplete();
         return;
       }
@@ -338,6 +342,7 @@ class AgentService {
       messages.add({'role': 'user', 'content': toolResults});
     }
 
+    onMessagesUpdate?.call(List.unmodifiable(messages));
     yield const AgentError('Max iterations reached.');
   }
 

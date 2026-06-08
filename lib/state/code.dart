@@ -71,6 +71,7 @@ const _unset = Object();
 class CodeState {
   final String workingDir;
   final List<CodeEntry> entries;
+  final List<Map<String, dynamic>> history; // LLM message history for multi-turn
   final bool isRunning;
   // Sandbox
   final SandboxType? sandboxType;
@@ -85,6 +86,7 @@ class CodeState {
   const CodeState({
     this.workingDir = '',
     this.entries = const [],
+    this.history = const [],
     this.isRunning = false,
     this.sandboxType,
     this.requestedSandboxType,
@@ -98,6 +100,7 @@ class CodeState {
   CodeState copyWith({
     String? workingDir,
     List<CodeEntry>? entries,
+    List<Map<String, dynamic>>? history,
     bool? isRunning,
     SandboxType? sandboxType,
     SandboxType? requestedSandboxType,
@@ -111,6 +114,7 @@ class CodeState {
       CodeState(
         workingDir: workingDir ?? this.workingDir,
         entries: entries ?? this.entries,
+        history: history ?? this.history,
         isRunning: isRunning ?? this.isRunning,
         sandboxType: sandboxType ?? this.sandboxType,
         requestedSandboxType: requestedSandboxType ?? this.requestedSandboxType,
@@ -225,8 +229,10 @@ class CodeNotifier extends Notifier<CodeState> {
     if (dir.isEmpty) return;
     try {
       final f = await _sessionFile(dir);
-      await f.writeAsString(
-          jsonEncode(state.entries.map((e) => e.toJson()).toList()));
+      await f.writeAsString(jsonEncode({
+        'entries': state.entries.map((e) => e.toJson()).toList(),
+        'history': state.history,
+      }));
     } catch (_) {}
   }
 
@@ -234,10 +240,22 @@ class CodeNotifier extends Notifier<CodeState> {
     try {
       final f = await _sessionFile(dir);
       if (!await f.exists()) return;
-      final raw = jsonDecode(await f.readAsString()) as List;
-      final entries =
-          raw.map((e) => CodeEntry.fromJson(e as Map<String, dynamic>)).toList();
-      state = state.copyWith(entries: entries);
+      final raw = jsonDecode(await f.readAsString());
+      if (raw is List) {
+        // Legacy format — entries only
+        final entries =
+            raw.map((e) => CodeEntry.fromJson(e as Map<String, dynamic>)).toList();
+        state = state.copyWith(entries: entries);
+      } else if (raw is Map) {
+        final entries = (raw['entries'] as List)
+            .map((e) => CodeEntry.fromJson(e as Map<String, dynamic>))
+            .toList();
+        final history = (raw['history'] as List?)
+                ?.map((e) => Map<String, dynamic>.from(e as Map))
+                .toList() ??
+            [];
+        state = state.copyWith(entries: entries, history: history);
+      }
     } catch (_) {}
   }
 
@@ -281,8 +299,12 @@ class CodeNotifier extends Notifier<CodeState> {
     if (!v) _save();
   }
 
+  void updateHistory(List<Map<String, dynamic>> messages) {
+    state = state.copyWith(history: messages);
+  }
+
   Future<void> clearConversation() async {
-    state = state.copyWith(entries: []);
+    state = state.copyWith(entries: [], history: []);
     if (state.workingDir.isNotEmpty) {
       try {
         final f = await _sessionFile(state.workingDir);
@@ -298,6 +320,7 @@ class CodeNotifier extends Notifier<CodeState> {
     state = state.copyWith(
       workingDir: dir,
       entries: [],
+      history: [],
       openFiles: [],
       activeFileIndex: null,
       clearSandboxError: true,
