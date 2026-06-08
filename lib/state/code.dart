@@ -74,6 +74,7 @@ class CodeState {
   final bool isRunning;
   // Sandbox
   final SandboxType? sandboxType;
+  final SandboxType? requestedSandboxType;
   final ContainerStatus containerStatus;
   final String sandboxImage;
   final String? sandboxError;
@@ -86,6 +87,7 @@ class CodeState {
     this.entries = const [],
     this.isRunning = false,
     this.sandboxType,
+    this.requestedSandboxType,
     this.containerStatus = ContainerStatus.idle,
     this.sandboxImage = 'ubuntu:24.04',
     this.sandboxError,
@@ -98,6 +100,7 @@ class CodeState {
     List<CodeEntry>? entries,
     bool? isRunning,
     SandboxType? sandboxType,
+    SandboxType? requestedSandboxType,
     ContainerStatus? containerStatus,
     String? sandboxImage,
     String? sandboxError,
@@ -110,6 +113,7 @@ class CodeState {
         entries: entries ?? this.entries,
         isRunning: isRunning ?? this.isRunning,
         sandboxType: sandboxType ?? this.sandboxType,
+        requestedSandboxType: requestedSandboxType ?? this.requestedSandboxType,
         containerStatus: containerStatus ?? this.containerStatus,
         sandboxImage: sandboxImage ?? this.sandboxImage,
         sandboxError: clearSandboxError ? null : (sandboxError ?? this.sandboxError),
@@ -132,37 +136,71 @@ class CodeNotifier extends Notifier<CodeState> {
     return const CodeState();
   }
 
+  bool get canUseDocker => _sandbox.canUseDocker;
+
   Future<void> _detectSandbox() async {
     final type = await _sandbox.detect();
-    state = state.copyWith(sandboxType: type);
-  }
-
-  Future<void> setWorkingDir(String dir) async {
-    if (_sandbox.status == ContainerStatus.running) await _sandbox.stop();
-    state = state.copyWith(
-      workingDir: dir,
-      entries: [],
-      openFiles: [],
-      activeFileIndex: null,
-      clearSandboxError: true,
-      containerStatus: ContainerStatus.idle,
-    );
-    if (dir.isEmpty) return;
-    await _loadSession(dir);
-
-    state = state.copyWith(containerStatus: ContainerStatus.starting);
-    try {
-      await _sandbox.start(workingDir: dir, image: state.sandboxImage);
-      state = state.copyWith(containerStatus: ContainerStatus.running);
-    } catch (e) {
-      state = state.copyWith(
-        containerStatus: ContainerStatus.error,
-        sandboxError: e.toString(),
-      );
+    
+    // If user requested a specific type, check if it's compatible
+    final requestedType = state.requestedSandboxType;
+    if (requestedType != null) {
+      if (requestedType == SandboxType.docker && type == SandboxType.restricted) {
+        // Requested docker but not available, fall back to restricted
+        state = state.copyWith(
+          sandboxType: SandboxType.restricted,
+        );
+      } else {
+        // Use requested type or detected type
+        state = state.copyWith(
+          sandboxType: requestedType == SandboxType.docker ? type : requestedType,
+        );
+      }
+    } else {
+      state = state.copyWith(sandboxType: type);
     }
   }
 
-  Future<void> restartSandbox() => setWorkingDir(state.workingDir);
+  Future<void> setSandboxType(SandboxType? type) async {
+    if (type == state.requestedSandboxType) return;
+    
+    // If switching to restricted, always works
+    // If switching to docker, check if available
+    if (type == SandboxType.docker && _sandbox.type == SandboxType.restricted) {
+      // Docker not available
+      return;
+    }
+    
+    state = state.copyWith(
+      requestedSandboxType: type,
+    );
+    
+    // Restart sandbox with new type if working dir is set
+    if (state.workingDir.isNotEmpty) {
+      await restartSandbox();
+    }
+  }
+
+  void setSandboxTypeSync(SandboxType? type) {
+    if (type == state.requestedSandboxType) return;
+    
+    // Check if requested type is available
+    if (type == SandboxType.docker && _sandbox.type == SandboxType.restricted) {
+      return; // Docker not available
+    }
+    
+    state = state.copyWith(
+      requestedSandboxType: type,
+    );
+    
+    // Restart sandbox with new type if working dir is set
+    if (state.workingDir.isNotEmpty) {
+      restartSandbox();
+    }
+  }
+
+  Future<void> restartSandbox() {
+    return _setWorkingDir(state.workingDir);
+  }
 
   Future<String> Function(String) get commandRunner =>
       (cmd) => _sandbox.exec(cmd,
@@ -253,6 +291,36 @@ class CodeNotifier extends Notifier<CodeState> {
     }
   }
 
+  Future<void> setWorkingDir(String dir) => _setWorkingDir(dir);
+
+  Future<void> _setWorkingDir(String dir) async {
+    if (_sandbox.status == ContainerStatus.running) await _sandbox.stop();
+    state = state.copyWith(
+      workingDir: dir,
+      entries: [],
+      openFiles: [],
+      activeFileIndex: null,
+      clearSandboxError: true,
+      containerStatus: ContainerStatus.idle,
+    );
+    if (dir.isEmpty) return;
+    await _loadSession(dir);
+
+    state = state.copyWith(containerStatus: ContainerStatus.starting);
+    try {
+      // Set the sandbox mode based on user request or detection
+      final desiredMode = state.requestedSandboxType ?? state.sandboxType ?? SandboxType.restricted;
+      _sandbox.setMode(desiredMode);
+      await _sandbox.start(workingDir: dir, image: state.sandboxImage);
+      state = state.copyWith(containerStatus: ContainerStatus.running);
+    } catch (e) {
+      state = state.copyWith(
+        containerStatus: ContainerStatus.error,
+        sandboxError: e.toString(),
+      );
+    }
+  }
+
   // ── File tabs ──────────────────────────────────────────────────────────────
 
   Future<void> openFile(String path) async {
@@ -298,3 +366,5 @@ class CodeNotifier extends Notifier<CodeState> {
 
   void showFileTab(int index) => state = state.copyWith(activeFileIndex: index);
 }
+
+

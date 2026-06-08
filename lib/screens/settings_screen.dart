@@ -127,6 +127,7 @@ class _ProviderCard extends ConsumerStatefulWidget {
 class _ProviderCardState extends ConsumerState<_ProviderCard> {
   late TextEditingController _keyCtrl;
   late TextEditingController _urlCtrl;
+  late TextEditingController _modelCtrl;
   bool _keyVisible = false;
 
   @override
@@ -136,12 +137,14 @@ class _ProviderCardState extends ConsumerState<_ProviderCard> {
     final p = config.providers[widget.providerId]!;
     _keyCtrl = TextEditingController(text: p.apiKey);
     _urlCtrl = TextEditingController(text: p.baseUrl);
+    _modelCtrl = TextEditingController(text: p.selectedModel);
   }
 
   @override
   void dispose() {
     _keyCtrl.dispose();
     _urlCtrl.dispose();
+    _modelCtrl.dispose();
     super.dispose();
   }
 
@@ -176,16 +179,10 @@ class _ProviderCardState extends ConsumerState<_ProviderCard> {
           ),
           const SizedBox(height: 12),
           // Model picker
-          DropdownButtonFormField<String>(
-            value: p.selectedModel,
+          TextField(
+            controller: _modelCtrl,
             decoration: const InputDecoration(labelText: 'Model'),
-            dropdownColor: cs.surfaceContainerHigh,
-            items: p.models
-                .map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontSize: 13))))
-                .toList(),
-            onChanged: (v) {
-              if (v != null) notifier.setModel(p.id, v);
-            },
+            onChanged: (v) => notifier.setModel(p.id, v),
           ),
           const SizedBox(height: 10),
           // API key (not shown for ollama)

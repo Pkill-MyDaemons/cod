@@ -22,6 +22,29 @@ class SandboxService {
 
   SandboxType get type => _type;
   ContainerStatus get status => _status;
+  
+  // Allow manual override of sandbox type
+  Future<SandboxType> setType(SandboxType newType) async {
+    if (_type == newType) return _type;
+    
+    final wasRunning = _status == ContainerStatus.running;
+    if (wasRunning) await stop();
+    
+    _type = newType;
+    
+    if (newType == SandboxType.docker && _isMobile) {
+      _type = SandboxType.restricted; // Don't allow docker on mobile
+      return _type;
+    }
+    
+    return _type;
+  }
+  
+  void setMode(SandboxType mode) {
+    _type = mode;
+  }
+  
+  bool get canUseDocker => !_isMobile && _type == SandboxType.docker;
 
   // Detect whether Docker is available on this platform
   bool get _isMobile => Platform.isIOS || Platform.isAndroid;
@@ -52,9 +75,15 @@ class SandboxService {
   }) async {
     _workingDir = workingDir;
 
+    if (_status == ContainerStatus.running) return;
+
     if (_isMobile || _type == SandboxType.restricted) {
       _status = ContainerStatus.running;
       return;
+    }
+
+    if (_type == SandboxType.docker && _containerId != null) {
+      await stop();
     }
 
     if (_containerId != null) await stop();
