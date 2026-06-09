@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../models/config.dart';
+import '../services/daemon_service.dart';
 import '../services/gmail_service.dart';
 import '../state/providers.dart';
 
@@ -39,6 +41,10 @@ class SettingsScreen extends ConsumerWidget {
               child: _ProviderCard(providerId: p.id),
             ),
           ),
+          const SizedBox(height: 24),
+          _SectionHeader('Daemon'),
+          const SizedBox(height: 8),
+          const _DaemonCard(),
           const SizedBox(height: 24),
           _SectionHeader('Gmail'),
           const SizedBox(height: 8),
@@ -251,6 +257,239 @@ class _KeyStatusDot extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ── Daemon card ───────────────────────────────────────────────────────────────
+
+class _DaemonCard extends ConsumerStatefulWidget {
+  const _DaemonCard();
+
+  @override
+  ConsumerState<_DaemonCard> createState() => _DaemonCardState();
+}
+
+class _DaemonCardState extends ConsumerState<_DaemonCard> {
+  late TextEditingController _timeCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final config = ref.read(configProvider);
+    _timeCtrl = TextEditingController(text: config.nightlyTime);
+  }
+
+  @override
+  void dispose() {
+    _timeCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final config = ref.watch(configProvider);
+    final cs = Theme.of(context).colorScheme;
+    final notifier = ref.read(configProvider.notifier);
+    final daemon = DaemonService.instance;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('Auto-run', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Spacer(),
+              if (daemon.isTicking)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: CircularProgressIndicator(strokeWidth: 1.5, color: cs.primary),
+                    ),
+                    const SizedBox(width: 6),
+                    Text('running', style: TextStyle(fontSize: 11, color: cs.primary)),
+                  ],
+                )
+              else if (config.daemonMode != DaemonMode.manual) ...[
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.green.shade400,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  'active',
+                  style: TextStyle(fontSize: 11, color: Colors.green.shade400),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Automatically run the agent on all pending tasks.',
+            style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.45)),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: DaemonMode.values.map((mode) {
+              final isActive = config.daemonMode == mode;
+              return GestureDetector(
+                onTap: () => notifier.setDaemonMode(mode),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isActive ? cs.primary.withOpacity(0.18) : cs.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isActive ? cs.primary : cs.surfaceContainerHigh,
+                      width: isActive ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Text(
+                    mode.label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: isActive ? cs.primary : cs.onSurface.withOpacity(0.65),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          if (config.daemonMode == DaemonMode.nightly) ...[
+            const SizedBox(height: 14),
+            TextField(
+              controller: _timeCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Run at (HH:MM)',
+                hintText: '23:00',
+              ),
+              keyboardType: TextInputType.datetime,
+              onChanged: (v) {
+                if (RegExp(r'^\d{2}:\d{2}$').hasMatch(v)) {
+                  notifier.setNightlyTime(v);
+                }
+              },
+            ),
+          ],
+          if (config.daemonMode != DaemonMode.manual) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                if (daemon.lastRun != null)
+                  Text(
+                    'Last run: ${_formatTime(daemon.lastRun!)}',
+                    style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.4)),
+                  ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: daemon.isTicking ? null : () => setState(() => daemon.tick()),
+                  child: Text(
+                    'Run now',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: daemon.isTicking
+                          ? cs.onSurface.withOpacity(0.3)
+                          : cs.primary,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 18),
+          const Divider(height: 1),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Text('Expire tasks after',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              const Spacer(),
+              _TtlSelector(
+                value: config.taskTtlDays,
+                onChanged: (d) => notifier.setTaskTtlDays(d),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Tasks untouched by you or the agent are deleted automatically.',
+            style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.4)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+}
+
+class _TtlSelector extends StatelessWidget {
+  final int value;
+  final void Function(int) onChanged;
+
+  static const _options = [
+    (1, '1d'),
+    (2, '2d'),
+    (7, '7d'),
+    (0, 'Never'),
+  ];
+
+  const _TtlSelector({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: _options.map(((int days, String label) opt) {
+        final isActive = value == opt.$1;
+        return GestureDetector(
+          onTap: () => onChanged(opt.$1),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            margin: const EdgeInsets.only(left: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: isActive ? cs.primary.withOpacity(0.18) : cs.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: isActive ? cs.primary : Colors.transparent,
+                width: 1.5,
+              ),
+            ),
+            child: Text(
+              opt.$2,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isActive ? cs.primary : cs.onSurface.withOpacity(0.6),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }

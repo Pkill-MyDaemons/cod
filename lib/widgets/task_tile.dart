@@ -6,6 +6,7 @@ class TaskTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onStatusTap;
   final VoidCallback? onRunTap;
+  final int ttlDays;
 
   const TaskTile({
     super.key,
@@ -13,11 +14,29 @@ class TaskTile extends StatelessWidget {
     required this.onTap,
     required this.onStatusTap,
     this.onRunTap,
+    this.ttlDays = 0,
   });
+
+  String? _expiryLabel() {
+    final remaining = task.timeUntilExpiry(ttlDays);
+    if (remaining == null || remaining.inDays >= 1) return null;
+    final h = remaining.inHours;
+    final m = remaining.inMinutes % 60;
+    if (h > 0) return 'expires in ${h}h';
+    if (m > 0) return 'expires in ${m}m';
+    return 'expiring';
+  }
+
+  Color _expiryColor() {
+    final remaining = task.timeUntilExpiry(ttlDays);
+    if (remaining == null) return Colors.grey;
+    return remaining.inHours < 6 ? Colors.red.shade400 : Colors.amber.shade600;
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final expiryLabel = _expiryLabel();
 
     return InkWell(
       onTap: onTap,
@@ -73,6 +92,26 @@ class TaskTile extends StatelessWidget {
                           ),
                     ),
                   ],
+                  if (expiryLabel != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.hourglass_bottom_rounded,
+                              size: 10, color: _expiryColor()),
+                          const SizedBox(width: 3),
+                          Text(
+                            expiryLabel,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: _expiryColor(),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),

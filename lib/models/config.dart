@@ -1,3 +1,21 @@
+enum DaemonMode { manual, responsive, hourly, nightly }
+
+extension DaemonModeX on DaemonMode {
+  String get label => switch (this) {
+        DaemonMode.manual => 'Manual',
+        DaemonMode.responsive => 'Every 5 min',
+        DaemonMode.hourly => 'Hourly',
+        DaemonMode.nightly => 'Nightly',
+      };
+
+  Duration? get interval => switch (this) {
+        DaemonMode.manual => null,
+        DaemonMode.responsive => const Duration(minutes: 5),
+        DaemonMode.hourly => const Duration(hours: 1),
+        DaemonMode.nightly => null,
+      };
+}
+
 class ProviderConfig {
   final String id;
   final String name;
@@ -33,10 +51,17 @@ class ProviderConfig {
 class AppConfig {
   final String activeProviderId;
   final Map<String, ProviderConfig> providers;
+  final DaemonMode daemonMode;
+  final String nightlyTime;
+  // 0 = never expire
+  final int taskTtlDays;
 
   const AppConfig({
     required this.activeProviderId,
     required this.providers,
+    this.daemonMode = DaemonMode.manual,
+    this.nightlyTime = '23:00',
+    this.taskTtlDays = 2,
   });
 
   ProviderConfig get active =>
@@ -45,14 +70,23 @@ class AppConfig {
   AppConfig copyWith({
     String? activeProviderId,
     Map<String, ProviderConfig>? providers,
+    DaemonMode? daemonMode,
+    String? nightlyTime,
+    int? taskTtlDays,
   }) =>
       AppConfig(
         activeProviderId: activeProviderId ?? this.activeProviderId,
         providers: providers ?? this.providers,
+        daemonMode: daemonMode ?? this.daemonMode,
+        nightlyTime: nightlyTime ?? this.nightlyTime,
+        taskTtlDays: taskTtlDays ?? this.taskTtlDays,
       );
 
   static AppConfig get defaults => AppConfig(
         activeProviderId: 'claude',
+        daemonMode: DaemonMode.manual,
+        nightlyTime: '23:00',
+        taskTtlDays: 2,
         providers: {
           'claude': const ProviderConfig(
             id: 'claude',

@@ -11,6 +11,7 @@ class TasksScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tasks = ref.watch(tasksProvider);
+    final ttlDays = ref.watch(configProvider).taskTtlDays;
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -25,6 +26,7 @@ class TasksScreen extends ConsumerWidget {
                 final task = tasks[i];
                 return TaskTile(
                   task: task,
+                  ttlDays: ttlDays,
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(

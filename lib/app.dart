@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'services/daemon_service.dart';
 import 'state/providers.dart';
 import 'theme.dart';
 import 'screens/chat_screen.dart';
@@ -36,9 +37,20 @@ class _ShellState extends ConsumerState<_Shell> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
+    Future.microtask(() async {
       ref.read(minnowSyncProvider).start();
       ref.read(updateProvider.notifier).checkForUpdates();
+      final config = ref.read(configProvider);
+      DaemonService.instance.init(
+        tasksReader: () => ref.read(tasksProvider),
+        configReader: () => ref.read(configProvider),
+        onComplete: (id, status) =>
+            ref.read(tasksProvider.notifier).cycleStatusTo(id, status),
+      );
+      DaemonService.instance.apply(config.daemonMode, config.nightlyTime);
+      // Prune stale tasks after tasks have loaded from disk
+      await Future.delayed(const Duration(milliseconds: 500));
+      ref.read(tasksProvider.notifier).pruneExpired(config.taskTtlDays);
     });
   }
 

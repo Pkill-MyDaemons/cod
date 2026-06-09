@@ -123,4 +123,17 @@ class TasksNotifier extends Notifier<List<Task>> {
     }).toList();
     await _persist();
   }
+
+  Future<int> pruneExpired(int ttlDays) async {
+    if (ttlDays <= 0) return 0;
+    final before = state.length;
+    final pruned = state.where((t) => t.isExpired(ttlDays)).map((t) => t.id).toSet();
+    if (pruned.isEmpty) return 0;
+    state = state.where((t) => !pruned.contains(t.id)).toList();
+    await _persist();
+    for (final id in pruned) {
+      _sync.deleteTask(id);
+    }
+    return before - state.length;
+  }
 }

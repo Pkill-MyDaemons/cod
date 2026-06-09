@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/config.dart';
+import '../services/daemon_service.dart';
 
 class ConfigNotifier extends Notifier<AppConfig> {
   @override
@@ -12,6 +13,9 @@ class ConfigNotifier extends Notifier<AppConfig> {
   }
 
   static const _prefActiveProvider = 'active_provider';
+  static const _prefDaemonMode = 'daemon_mode';
+  static const _prefNightlyTime = 'nightly_time';
+  static const _prefTaskTtlDays = 'task_ttl_days';
   static String _prefKey(String provider) => 'key_$provider';
   static String _prefModel(String provider) => 'model_$provider';
   static String _prefBaseUrl(String provider) => 'base_$provider';
@@ -43,6 +47,13 @@ class ConfigNotifier extends Notifier<AppConfig> {
       await _migrateFromSandbox(prefs);
     }
     final activeId = prefs.getString(_prefActiveProvider) ?? 'claude';
+    final daemonModeStr = prefs.getString(_prefDaemonMode) ?? 'manual';
+    final daemonMode = DaemonMode.values.firstWhere(
+      (m) => m.name == daemonModeStr,
+      orElse: () => DaemonMode.manual,
+    );
+    final nightlyTime = prefs.getString(_prefNightlyTime) ?? '23:00';
+    final taskTtlDays = prefs.getInt(_prefTaskTtlDays) ?? 2;
     final providers = Map<String, ProviderConfig>.from(state.providers);
     for (final id in providers.keys) {
       final key = prefs.getString(_prefKey(id)) ?? '';
@@ -50,7 +61,14 @@ class ConfigNotifier extends Notifier<AppConfig> {
       final base = prefs.getString(_prefBaseUrl(id)) ?? providers[id]!.baseUrl;
       providers[id] = providers[id]!.copyWith(apiKey: key, selectedModel: model, baseUrl: base);
     }
-    state = AppConfig(activeProviderId: activeId, providers: providers);
+    state = AppConfig(
+      activeProviderId: activeId,
+      providers: providers,
+      daemonMode: daemonMode,
+      nightlyTime: nightlyTime,
+      taskTtlDays: taskTtlDays,
+    );
+    DaemonService.instance.apply(daemonMode, nightlyTime);
   }
 
   Future<void> setActiveProvider(String id) async {
@@ -81,5 +99,27 @@ class ConfigNotifier extends Notifier<AppConfig> {
     state = state.copyWith(providers: providers);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefBaseUrl(providerId), url);
+  }
+
+  Future<void> setDaemonMode(DaemonMode mode) async {
+    state = state.copyWith(daemonMode: mode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefDaemonMode, mode.name);
+    DaemonService.instance.apply(mode, state.nightlyTime);
+  }
+
+  Future<void> setNightlyTime(String hhmm) async {
+    state = state.copyWith(nightlyTime: hhmm);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefNightlyTime, hhmm);
+    if (state.daemonMode == DaemonMode.nightly) {
+      DaemonService.instance.apply(DaemonMode.nightly, hhmm);
+    }
+  }
+
+  Future<void> setTaskTtlDays(int days) async {
+    state = state.copyWith(taskTtlDays: days);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_prefTaskTtlDays, days);
   }
 }

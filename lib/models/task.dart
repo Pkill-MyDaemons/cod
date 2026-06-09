@@ -52,6 +52,19 @@ class Task {
         'hasUnread': hasUnread,
       };
 
+  bool isExpired(int ttlDays) {
+    if (ttlDays <= 0) return false;
+    return DateTime.now().difference(updatedAt).inSeconds >=
+        ttlDays * 86400;
+  }
+
+  Duration? timeUntilExpiry(int ttlDays) {
+    if (ttlDays <= 0) return null;
+    final expiry = updatedAt.add(Duration(days: ttlDays));
+    final remaining = expiry.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
   factory Task.fromJson(Map<String, dynamic> json) => Task(
         id: json['id'] as String,
         title: json['title'] as String,
