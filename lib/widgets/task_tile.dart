@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/task.dart';
+import 'skill_badge.dart';
 
 class TaskTile extends StatelessWidget {
   final Task task;
@@ -83,15 +84,21 @@ class TaskTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
-                  if (task.thread.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      '${task.thread.length} message${task.thread.length != 1 ? 's' : ''}',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: cs.primary.withOpacity(0.7),
-                          ),
-                    ),
-                  ],
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      SkillBadge(skill: task.skill),
+                      if (task.skill != TaskSkill.general && task.thread.isNotEmpty)
+                        const SizedBox(width: 6),
+                      if (task.thread.isNotEmpty)
+                        Text(
+                          '${task.thread.length} message${task.thread.length != 1 ? 's' : ''}',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: cs.primary.withOpacity(0.7),
+                              ),
+                        ),
+                    ],
+                  ),
                   if (expiryLabel != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),

@@ -1,5 +1,31 @@
+import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import 'message.dart';
+
+enum TaskSkill { general, research, code, write }
+
+extension TaskSkillX on TaskSkill {
+  String get label => switch (this) {
+        TaskSkill.general => 'General',
+        TaskSkill.research => 'Research',
+        TaskSkill.code => 'Code',
+        TaskSkill.write => 'Write',
+      };
+
+  IconData get icon => switch (this) {
+        TaskSkill.general => Icons.auto_fix_high_outlined,
+        TaskSkill.research => Icons.travel_explore_outlined,
+        TaskSkill.code => Icons.terminal_outlined,
+        TaskSkill.write => Icons.edit_note_outlined,
+      };
+
+  Color get color => switch (this) {
+        TaskSkill.general => const Color(0xFF8B8BDA),
+        TaskSkill.research => const Color(0xFF4FC3F7),
+        TaskSkill.code => const Color(0xFF81C784),
+        TaskSkill.write => const Color(0xFFFFB74D),
+      };
+}
 
 enum TaskStatus { todo, inProgress, done }
 
@@ -22,6 +48,7 @@ class Task {
   String title;
   String description;
   TaskStatus status;
+  TaskSkill skill;
   final List<Message> thread;
   final DateTime createdAt;
   DateTime updatedAt;
@@ -32,6 +59,7 @@ class Task {
     required this.title,
     this.description = '',
     this.status = TaskStatus.todo,
+    this.skill = TaskSkill.general,
     List<Message>? thread,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -46,6 +74,7 @@ class Task {
         'title': title,
         'description': description,
         'status': status.name,
+        'skill': skill.name,
         'thread': thread.map((m) => m.toJson()).toList(),
         'createdAt': createdAt.toIso8601String(),
         'updatedAt': updatedAt.toIso8601String(),
@@ -70,6 +99,10 @@ class Task {
         title: json['title'] as String,
         description: json['description'] as String? ?? '',
         status: TaskStatus.values.byName(json['status'] as String),
+        skill: TaskSkill.values.firstWhere(
+          (s) => s.name == (json['skill'] as String? ?? ''),
+          orElse: () => TaskSkill.general,
+        ),
         thread: (json['thread'] as List? ?? [])
             .map((m) => Message.fromJson(m as Map<String, dynamic>))
             .toList(),

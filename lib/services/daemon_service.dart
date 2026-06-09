@@ -2,7 +2,7 @@ import 'dart:async';
 import '../models/config.dart';
 import '../models/task.dart';
 import '../models/tool.dart';
-import '../services/agent_service.dart';
+import 'agent_service.dart';
 
 class DaemonService {
   DaemonService._();
@@ -81,27 +81,21 @@ class DaemonService {
   }
 
   Future<void> _runTask(Task task, AppConfig config) async {
+    final skillDef = SkillDef.of(task.skill);
     final prompt = 'Complete this task:\n'
         'Title: ${task.title}\n'
         '${task.description.isNotEmpty ? 'Description: ${task.description}\n' : ''}'
-        'Status: ${task.status.label}\n\n'
-        'Use the available tools to accomplish the task. '
-        'When done, call mark_complete with a summary.';
-
-    const system = 'You are an autonomous task-completion agent. '
-        'Use tools to complete the task. Be methodical and thorough. '
-        'Always read a file with read_file before modifying it. '
-        'When editing existing files use str_replace_file. Only use write_file for new files.';
+        'Status: ${task.status.label}';
 
     final service = AgentService();
     await for (final event in service.run(
       initialPrompt: prompt,
-      tools: AgentService.taskTools,
+      tools: skillDef.tools,
       model: config.active.selectedModel,
       apiKey: config.active.apiKey,
       providerId: config.activeProviderId,
       baseUrl: config.active.baseUrl,
-      system: system,
+      system: skillDef.system,
     )) {
       if (event is AgentToolDone && event.toolName == 'mark_complete') {
         await _onComplete!(task.id, TaskStatus.done);

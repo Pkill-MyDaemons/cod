@@ -4,6 +4,7 @@ import 'dart:io';
 import '../llm/agent_llm.dart';
 import '../llm/provider.dart';
 import '../models/config.dart';
+import '../models/task.dart';
 import '../models/tool.dart';
 import 'package:http/http.dart' as http;
 
@@ -127,6 +128,51 @@ class TaskDaemon {
   bool get isRunning => _running;
 }
 
+class SkillDef {
+  final List<Tool> tools;
+  final String system;
+
+  const SkillDef({required this.tools, required this.system});
+
+  static SkillDef of(TaskSkill skill) => _defs[skill]!;
+
+  static late final _defs = {
+    TaskSkill.general: SkillDef(
+      tools: AgentService.taskTools,
+      system: 'You are an autonomous task-completion agent. '
+          'Use tools to complete the task. Be methodical and thorough. '
+          'Always read a file with read_file before modifying it. '
+          'When editing existing files use str_replace_file. Only use write_file for new files. '
+          'When done, call mark_complete with a summary.',
+    ),
+    TaskSkill.research: SkillDef(
+      tools: AgentService.researchTools,
+      system: 'You are a research assistant. '
+          'Search the web thoroughly using multiple queries to gather information from diverse sources. '
+          'Cross-reference facts, note conflicting information, and synthesize findings into clear, structured output. '
+          'Save your research findings to a file if the task requires a written deliverable. '
+          'When done, call mark_complete with a brief summary of what you found.',
+    ),
+    TaskSkill.code: SkillDef(
+      tools: AgentService.codeTaskTools,
+      system: 'You are an expert software engineer. '
+          'Read relevant files before making changes. '
+          'Use str_replace_file for targeted edits, write_file only for new files. '
+          'Run commands to test your changes where appropriate. '
+          'Be precise — make minimal, correct changes. '
+          'When done, call mark_complete with a summary of the changes made.',
+    ),
+    TaskSkill.write: SkillDef(
+      tools: AgentService.writeTools,
+      system: 'You are a skilled writer and editor. '
+          'Read existing content before editing. '
+          'Write clearly, concisely, and in the appropriate tone for the context. '
+          'Prefer str_replace_file for editing existing documents. '
+          'When done, call mark_complete with a brief description of what was written or changed.',
+    ),
+  };
+}
+
 class AgentService {
   static final List<Tool> codeTools = [
     Tool(
@@ -216,39 +262,57 @@ class AgentService {
     ),
   ];
 
-  static final List<Tool> taskTools = [
-    ...codeTools,
-    Tool(
-      name: 'mark_complete',
-      description: 'Mark this task as done. Call when the task is fully completed.',
-      inputSchema: {
-        'type': 'object',
-        'properties': {
-          'summary': {'type': 'string', 'description': 'Brief summary of what was accomplished.'},
-        },
-        'required': ['summary'],
+  static final _markCompleteTool = Tool(
+    name: 'mark_complete',
+    description: 'Mark this task as done. Call when the task is fully completed.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'summary': {'type': 'string', 'description': 'Brief summary of what was accomplished.'},
       },
-    ),
-    Tool(
-      name: 'web_search',
-      description: 'Search the web for information using DuckDuckGo. Returns search results with titles, snippets, and URLs.',
-      inputSchema: {
-        'type': 'object',
-        'properties': {
-          'query': {
-            'type': 'string',
-            'description': 'The search query to look up on the web',
-          },
-          'numResults': {
-            'type': 'integer',
-            'description': 'Number of results to return (default: 5, max: 10)',
-            'default': 5,
-            'maximum': 10,
-          },
+      'required': ['summary'],
+    },
+  );
+
+  static final _webSearchTool = Tool(
+    name: 'web_search',
+    description: 'Search the web for information using DuckDuckGo.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'query': {'type': 'string', 'description': 'The search query.'},
+        'numResults': {
+          'type': 'integer',
+          'description': 'Number of results to return (default: 5, max: 10)',
+          'default': 5,
+          'maximum': 10,
         },
-        'required': ['query'],
       },
-    ),
+      'required': ['query'],
+    },
+  );
+
+  // General: all tools
+  static final List<Tool> taskTools = [...codeTools, _markCompleteTool, _webSearchTool];
+
+  // Code: file/shell tools, no web search
+  static final List<Tool> codeTaskTools = [...codeTools, _markCompleteTool];
+
+  // Research: web search + read/write files only
+  static final List<Tool> researchTools = [
+    codeTools.firstWhere((t) => t.name == 'read_file'),
+    codeTools.firstWhere((t) => t.name == 'write_file'),
+    _webSearchTool,
+    _markCompleteTool,
+  ];
+
+  // Write: read/write/edit files only
+  static final List<Tool> writeTools = [
+    codeTools.firstWhere((t) => t.name == 'read_file'),
+    codeTools.firstWhere((t) => t.name == 'write_file'),
+    codeTools.firstWhere((t) => t.name == 'str_replace_file'),
+    codeTools.firstWhere((t) => t.name == 'list_directory'),
+    _markCompleteTool,
   ];
 
   Stream<AgentEvent> run({

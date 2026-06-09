@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/task.dart';
 import '../state/providers.dart';
+import '../widgets/skill_badge.dart';
 import '../widgets/task_tile.dart';
 import 'task_detail_screen.dart';
 
@@ -63,15 +64,16 @@ class TasksScreen extends ConsumerWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) => _AddTaskSheet(
-        onAdd: (title, desc) =>
-            ref.read(tasksProvider.notifier).add(title: title, description: desc),
+        onAdd: (title, desc, skill) => ref
+            .read(tasksProvider.notifier)
+            .add(title: title, description: desc, skill: skill),
       ),
     );
   }
 }
 
 class _AddTaskSheet extends StatefulWidget {
-  final void Function(String title, String description) onAdd;
+  final void Function(String title, String description, TaskSkill skill) onAdd;
   const _AddTaskSheet({required this.onAdd});
 
   @override
@@ -81,6 +83,7 @@ class _AddTaskSheet extends StatefulWidget {
 class _AddTaskSheetState extends State<_AddTaskSheet> {
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
+  TaskSkill _skill = TaskSkill.general;
 
   @override
   void dispose() {
@@ -121,11 +124,49 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
             minLines: 1,
             textCapitalization: TextCapitalization.sentences,
           ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: TaskSkill.values.map((s) {
+              final isActive = _skill == s;
+              return GestureDetector(
+                onTap: () => setState(() => _skill = s),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 120),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isActive ? s.color.withOpacity(0.15) : cs.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isActive ? s.color.withOpacity(0.5) : Colors.transparent,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(s.icon, size: 13, color: isActive ? s.color : cs.onSurface.withOpacity(0.5)),
+                      const SizedBox(width: 5),
+                      Text(
+                        s.label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isActive ? s.color : cs.onSurface.withOpacity(0.55),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: () {
               if (_titleCtrl.text.trim().isEmpty) return;
-              widget.onAdd(_titleCtrl.text.trim(), _descCtrl.text.trim());
+              widget.onAdd(_titleCtrl.text.trim(), _descCtrl.text.trim(), _skill);
               Navigator.pop(context);
             },
             style: FilledButton.styleFrom(backgroundColor: cs.primary),

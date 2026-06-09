@@ -70,27 +70,21 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen>
 
     setState(() { _agentRunning = true; _agentLog.clear(); });
 
+    final skillDef = SkillDef.of(task.skill);
     final prompt = 'Complete this task:\n'
         'Title: ${task.title}\n'
         '${task.description.isNotEmpty ? 'Description: ${task.description}\n' : ''}'
-        'Status: ${task.status.label}\n\n'
-        'Use the available tools to accomplish the task. '
-        'When done, call mark_complete with a summary.';
-
-    final system = 'You are an autonomous task-completion agent. '
-        'Use tools to complete the task. Be methodical and thorough. '
-        'Always read a file with read_file before modifying it. '
-        'When editing existing files use str_replace_file. Only use write_file for new files.';
+        'Status: ${task.status.label}';
 
     final service = AgentService();
     await for (final event in service.run(
       initialPrompt: prompt,
-      tools: AgentService.taskTools,
+      tools: skillDef.tools,
       model: config.active.selectedModel,
       apiKey: config.active.apiKey,
       providerId: config.activeProviderId,
       baseUrl: config.active.baseUrl,
-      system: system,
+      system: skillDef.system,
     )) {
       switch (event) {
         case AgentText(:final text):
@@ -264,6 +258,10 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen>
                   running: _agentRunning,
                   onRun: _runAgent,
                   taskTitle: task.title,
+                  skill: task.skill,
+                  onSkillChanged: (s) => ref
+                      .read(tasksProvider.notifier)
+                      .updateSkill(task.id, s),
                 ),
               ],
             ),
@@ -412,13 +410,28 @@ class _AgentTab extends StatelessWidget {
   final bool running;
   final VoidCallback onRun;
   final String taskTitle;
+  final TaskSkill skill;
+  final void Function(TaskSkill) onSkillChanged;
 
   const _AgentTab({
     required this.log,
     required this.running,
     required this.onRun,
     required this.taskTitle,
+    required this.skill,
+    required this.onSkillChanged,
   });
+
+  void _showSkillPicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _SkillPickerSheet(current: skill, onPick: onSkillChanged),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -431,12 +444,48 @@ class _AgentTab extends StatelessWidget {
           color: cs.surfaceContainerLow,
           child: Row(
             children: [
+              GestureDetector(
+                onTap: running ? null : () => _showSkillPicker(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: skill.color.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: skill.color.withOpacity(0.35)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(skill.icon, size: 13, color: skill.color),
+                      const SizedBox(width: 5),
+                      Text(
+                        skill.label,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: skill.color),
+                      ),
+                      if (!running) ...[
+                        const SizedBox(width: 4),
+                        Icon(Icons.expand_more, size: 13, color: skill.color.withOpacity(0.7)),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  running
-                      ? 'Agent is working…'
-                      : 'Autonomously complete this task using file and shell tools.',
-                  style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.55)),
+                  running ? 'Agent is working…' : skill.label == 'Research'
+                      ? 'Searches the web and synthesizes findings.'
+                      : skill.label == 'Code'
+                          ? 'Reads, writes, and runs code.'
+                          : skill.label == 'Write'
+                              ? 'Creates and edits documents.'
+                              : 'Uses all available tools.',
+                  style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.5)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               const SizedBox(width: 12),
@@ -449,7 +498,7 @@ class _AgentTab extends StatelessWidget {
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: cs.onPrimary))
                     : const Icon(Icons.play_arrow, size: 16),
-                label: Text(running ? 'Running' : 'Run agent'),
+                label: Text(running ? 'Running' : 'Run'),
                 style: FilledButton.styleFrom(
                   backgroundColor: cs.primary,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -481,6 +530,79 @@ class _AgentTab extends StatelessWidget {
                 ),
         ),
       ],
+    );
+  }
+}
+
+class _SkillPickerSheet extends StatelessWidget {
+  final TaskSkill current;
+  final void Function(TaskSkill) onPick;
+  const _SkillPickerSheet({required this.current, required this.onPick});
+
+  static const _descriptions = {
+    TaskSkill.general: 'All tools — file access, shell, and web search.',
+    TaskSkill.research: 'Web search + save findings. Good for information gathering.',
+    TaskSkill.code: 'File and shell tools. No web access.',
+    TaskSkill.write: 'Read and write documents. Focused on text output.',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Skill', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 16),
+          ...TaskSkill.values.map((s) {
+            final isActive = s == current;
+            return GestureDetector(
+              onTap: () {
+                onPick(s);
+                Navigator.pop(context);
+              },
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: isActive ? s.color.withOpacity(0.12) : cs.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isActive ? s.color.withOpacity(0.5) : Colors.transparent,
+                    width: 1.5,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(s.icon, size: 18, color: s.color),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(s.label,
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: isActive ? s.color : cs.onSurface)),
+                          const SizedBox(height: 2),
+                          Text(_descriptions[s]!,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: cs.onSurface.withOpacity(0.5))),
+                        ],
+                      ),
+                    ),
+                    if (isActive) Icon(Icons.check, size: 16, color: s.color),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 }

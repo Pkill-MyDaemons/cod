@@ -42,11 +42,25 @@ class TasksNotifier extends Notifier<List<Task>> {
     _sync.syncAllTasks(state);
   }
 
-  Future<Task> add({required String title, String description = ''}) async {
-    final t = Task(title: title, description: description);
+  Future<Task> add({
+    required String title,
+    String description = '',
+    TaskSkill skill = TaskSkill.general,
+  }) async {
+    final t = Task(title: title, description: description, skill: skill);
     state = [t, ...state];
     await _persist();
     return t;
+  }
+
+  Future<void> updateSkill(String id, TaskSkill skill) async {
+    state = state.map((t) {
+      if (t.id != id) return t;
+      t.skill = skill;
+      t.updatedAt = DateTime.now();
+      return t;
+    }).toList();
+    await _persist();
   }
 
   Future<void> cycleStatus(String id) async {
