@@ -78,7 +78,9 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen>
         'When done, call mark_complete with a summary.';
 
     final system = 'You are an autonomous task-completion agent. '
-        'Use tools to complete the task. Be methodical and thorough.';
+        'Use tools to complete the task. Be methodical and thorough. '
+        'Always read a file with read_file before modifying it. '
+        'When editing existing files use str_replace_file. Only use write_file for new files.';
 
     final service = AgentService();
     await for (final event in service.run(

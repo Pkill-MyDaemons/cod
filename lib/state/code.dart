@@ -71,9 +71,11 @@ const _unset = Object();
 class CodeState {
   final String workingDir;
   final List<CodeEntry> entries;
+  final List<Map<String, dynamic>> history; // LLM message history for multi-turn
   final bool isRunning;
   // Sandbox
   final SandboxType? sandboxType;
+  final SandboxType? requestedSandboxType;
   final ContainerStatus containerStatus;
   final String sandboxImage;
   final String? sandboxError;
@@ -84,8 +86,10 @@ class CodeState {
   const CodeState({
     this.workingDir = '',
     this.entries = const [],
+    this.history = const [],
     this.isRunning = false,
     this.sandboxType,
+    this.requestedSandboxType,
     this.containerStatus = ContainerStatus.idle,
     this.sandboxImage = 'ubuntu:24.04',
     this.sandboxError,
@@ -96,8 +100,10 @@ class CodeState {
   CodeState copyWith({
     String? workingDir,
     List<CodeEntry>? entries,
+    List<Map<String, dynamic>>? history,
     bool? isRunning,
     SandboxType? sandboxType,
+    SandboxType? requestedSandboxType,
     ContainerStatus? containerStatus,
     String? sandboxImage,
     String? sandboxError,
@@ -108,8 +114,10 @@ class CodeState {
       CodeState(
         workingDir: workingDir ?? this.workingDir,
         entries: entries ?? this.entries,
+        history: history ?? this.history,
         isRunning: isRunning ?? this.isRunning,
         sandboxType: sandboxType ?? this.sandboxType,
+        requestedSandboxType: requestedSandboxType ?? this.requestedSandboxType,
         containerStatus: containerStatus ?? this.containerStatus,
         sandboxImage: sandboxImage ?? this.sandboxImage,
         sandboxError: clearSandboxError ? null : (sandboxError ?? this.sandboxError),
@@ -132,37 +140,71 @@ class CodeNotifier extends Notifier<CodeState> {
     return const CodeState();
   }
 
+  bool get canUseDocker => _sandbox.canUseDocker;
+
   Future<void> _detectSandbox() async {
     final type = await _sandbox.detect();
-    state = state.copyWith(sandboxType: type);
-  }
-
-  Future<void> setWorkingDir(String dir) async {
-    if (_sandbox.status == ContainerStatus.running) await _sandbox.stop();
-    state = state.copyWith(
-      workingDir: dir,
-      entries: [],
-      openFiles: [],
-      activeFileIndex: null,
-      clearSandboxError: true,
-      containerStatus: ContainerStatus.idle,
-    );
-    if (dir.isEmpty) return;
-    await _loadSession(dir);
-
-    state = state.copyWith(containerStatus: ContainerStatus.starting);
-    try {
-      await _sandbox.start(workingDir: dir, image: state.sandboxImage);
-      state = state.copyWith(containerStatus: ContainerStatus.running);
-    } catch (e) {
-      state = state.copyWith(
-        containerStatus: ContainerStatus.error,
-        sandboxError: e.toString(),
-      );
+    
+    // If user requested a specific type, check if it's compatible
+    final requestedType = state.requestedSandboxType;
+    if (requestedType != null) {
+      if (requestedType == SandboxType.docker && type == SandboxType.restricted) {
+        // Requested docker but not available, fall back to restricted
+        state = state.copyWith(
+          sandboxType: SandboxType.restricted,
+        );
+      } else {
+        // Use requested type or detected type
+        state = state.copyWith(
+          sandboxType: requestedType == SandboxType.docker ? type : requestedType,
+        );
+      }
+    } else {
+      state = state.copyWith(sandboxType: type);
     }
   }
 
-  Future<void> restartSandbox() => setWorkingDir(state.workingDir);
+  Future<void> setSandboxType(SandboxType? type) async {
+    if (type == state.requestedSandboxType) return;
+    
+    // If switching to restricted, always works
+    // If switching to docker, check if available
+    if (type == SandboxType.docker && _sandbox.type == SandboxType.restricted) {
+      // Docker not available
+      return;
+    }
+    
+    state = state.copyWith(
+      requestedSandboxType: type,
+    );
+    
+    // Restart sandbox with new type if working dir is set
+    if (state.workingDir.isNotEmpty) {
+      await restartSandbox();
+    }
+  }
+
+  void setSandboxTypeSync(SandboxType? type) {
+    if (type == state.requestedSandboxType) return;
+    
+    // Check if requested type is available
+    if (type == SandboxType.docker && _sandbox.type == SandboxType.restricted) {
+      return; // Docker not available
+    }
+    
+    state = state.copyWith(
+      requestedSandboxType: type,
+    );
+    
+    // Restart sandbox with new type if working dir is set
+    if (state.workingDir.isNotEmpty) {
+      restartSandbox();
+    }
+  }
+
+  Future<void> restartSandbox() {
+    return _setWorkingDir(state.workingDir);
+  }
 
   Future<String> Function(String) get commandRunner =>
       (cmd) => _sandbox.exec(cmd,
@@ -187,8 +229,10 @@ class CodeNotifier extends Notifier<CodeState> {
     if (dir.isEmpty) return;
     try {
       final f = await _sessionFile(dir);
-      await f.writeAsString(
-          jsonEncode(state.entries.map((e) => e.toJson()).toList()));
+      await f.writeAsString(jsonEncode({
+        'entries': state.entries.map((e) => e.toJson()).toList(),
+        'history': state.history,
+      }));
     } catch (_) {}
   }
 
@@ -196,10 +240,22 @@ class CodeNotifier extends Notifier<CodeState> {
     try {
       final f = await _sessionFile(dir);
       if (!await f.exists()) return;
-      final raw = jsonDecode(await f.readAsString()) as List;
-      final entries =
-          raw.map((e) => CodeEntry.fromJson(e as Map<String, dynamic>)).toList();
-      state = state.copyWith(entries: entries);
+      final raw = jsonDecode(await f.readAsString());
+      if (raw is List) {
+        // Legacy format — entries only
+        final entries =
+            raw.map((e) => CodeEntry.fromJson(e as Map<String, dynamic>)).toList();
+        state = state.copyWith(entries: entries);
+      } else if (raw is Map) {
+        final entries = (raw['entries'] as List)
+            .map((e) => CodeEntry.fromJson(e as Map<String, dynamic>))
+            .toList();
+        final history = (raw['history'] as List?)
+                ?.map((e) => Map<String, dynamic>.from(e as Map))
+                .toList() ??
+            [];
+        state = state.copyWith(entries: entries, history: history);
+      }
     } catch (_) {}
   }
 
@@ -243,13 +299,48 @@ class CodeNotifier extends Notifier<CodeState> {
     if (!v) _save();
   }
 
+  void updateHistory(List<Map<String, dynamic>> messages) {
+    state = state.copyWith(history: messages);
+  }
+
   Future<void> clearConversation() async {
-    state = state.copyWith(entries: []);
+    state = state.copyWith(entries: [], history: []);
     if (state.workingDir.isNotEmpty) {
       try {
         final f = await _sessionFile(state.workingDir);
         if (await f.exists()) await f.delete();
       } catch (_) {}
+    }
+  }
+
+  Future<void> setWorkingDir(String dir) => _setWorkingDir(dir);
+
+  Future<void> _setWorkingDir(String dir) async {
+    if (_sandbox.status == ContainerStatus.running) await _sandbox.stop();
+    state = state.copyWith(
+      workingDir: dir,
+      entries: [],
+      history: [],
+      openFiles: [],
+      activeFileIndex: null,
+      clearSandboxError: true,
+      containerStatus: ContainerStatus.idle,
+    );
+    if (dir.isEmpty) return;
+    await _loadSession(dir);
+
+    state = state.copyWith(containerStatus: ContainerStatus.starting);
+    try {
+      // Set the sandbox mode based on user request or detection
+      final desiredMode = state.requestedSandboxType ?? state.sandboxType ?? SandboxType.restricted;
+      _sandbox.setMode(desiredMode);
+      await _sandbox.start(workingDir: dir, image: state.sandboxImage);
+      state = state.copyWith(containerStatus: ContainerStatus.running);
+    } catch (e) {
+      state = state.copyWith(
+        containerStatus: ContainerStatus.error,
+        sandboxError: e.toString(),
+      );
     }
   }
 
@@ -298,3 +389,5 @@ class CodeNotifier extends Notifier<CodeState> {
 
   void showFileTab(int index) => state = state.copyWith(activeFileIndex: index);
 }
+
+

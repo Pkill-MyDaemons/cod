@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -24,12 +25,22 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   double _sidebarWidth = 220;
+  StreamSubscription<AgentEvent>? _agentSub;
+  bool _inStreamingCommand = false;
 
   @override
   void dispose() {
+    _agentSub?.cancel();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
+  }
+
+  void _stop() {
+    _agentSub?.cancel();
+    _agentSub = null;
+    _inStreamingCommand = false;
+    ref.read(codeProvider.notifier).setRunning(false);
   }
 
   void _scrollToBottom() {
@@ -76,12 +87,17 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
     final system = workingDir.isNotEmpty
         ? 'You are an expert coding assistant with access to file system and shell tools.\n'
           'Working directory: $workingDir\n'
-          'Be concise. Use tools to understand the codebase before answering.'
-        : 'You are an expert coding assistant. Be concise and think step-by-step.';
+          'Be concise. Always read a file with read_file before modifying it. '
+          'When editing existing files use str_replace_file — it is safer and only changes what you intend. '
+          'Only use write_file to create brand-new files.'
+        : 'You are an expert coding assistant. Be concise and think step-by-step. '
+          'When editing existing files use str_replace_file. Only use write_file for new files.';
 
+    final history = ref.read(codeProvider).history;
     final service = AgentService();
-    bool _inStreamingCommand = false;
-    await for (final event in service.run(
+    _inStreamingCommand = false;
+
+    _agentSub = service.run(
       initialPrompt: text,
       tools: AgentService.codeTools,
       model: config.active.selectedModel,
@@ -90,34 +106,47 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
       baseUrl: config.active.baseUrl,
       system: system,
       workingDir: workingDir.isNotEmpty ? workingDir : null,
+      history: history,
+      onMessagesUpdate: (msgs) =>
+          ref.read(codeProvider.notifier).updateHistory(msgs),
       commandRunner: ref.read(codeProvider.notifier).commandRunner,
       commandStreamRunner: ref.read(codeProvider.notifier).commandStreamRunner,
-    )) {
-      switch (event) {
-        case AgentText(:final text):
-          if (text.isNotEmpty) notifier.addEntry(CodeEntry.assistant(text));
-        case AgentToolStart(:final call):
-          notifier.addEntry(CodeEntry.toolCall(call.name, _summarise(call.input)));
-          _inStreamingCommand = call.name == 'run_command';
-        case AgentCommandOutput(:final line):
-          notifier.appendCommandOutput(line);
-        case AgentToolDone(:final toolName, :final result):
-          if (_inStreamingCommand) {
-            notifier.finalizeCommandOutput(toolName, result);
-            _inStreamingCommand = false;
-          } else {
-            notifier.addEntry(CodeEntry.toolResult(toolName, result));
-          }
-        case AgentComplete():
-          break;
-        case AgentError(:final message):
-          notifier.addEntry(CodeEntry.error(message));
-      }
-      _scrollToBottom();
-    }
-
-    notifier.setRunning(false);
-    _scrollToBottom();
+    ).listen(
+      (event) {
+        switch (event) {
+          case AgentText(:final text):
+            if (text.isNotEmpty) notifier.addEntry(CodeEntry.assistant(text));
+          case AgentToolStart(:final call):
+            notifier.addEntry(CodeEntry.toolCall(call.name, _summarise(call.input)));
+            _inStreamingCommand = call.name == 'run_command';
+          case AgentCommandOutput(:final line):
+            notifier.appendCommandOutput(line);
+          case AgentToolDone(:final toolName, :final result):
+            if (_inStreamingCommand) {
+              notifier.finalizeCommandOutput(toolName, result);
+              _inStreamingCommand = false;
+            } else {
+              notifier.addEntry(CodeEntry.toolResult(toolName, result));
+            }
+          case AgentComplete():
+            break;
+          case AgentError(:final message):
+            notifier.addEntry(CodeEntry.error(message));
+        }
+        _scrollToBottom();
+      },
+      onDone: () {
+        _agentSub = null;
+        notifier.setRunning(false);
+        _scrollToBottom();
+      },
+      onError: (e) {
+        _agentSub = null;
+        notifier.addEntry(CodeEntry.error('$e'));
+        notifier.setRunning(false);
+        _scrollToBottom();
+      },
+    );
   }
 
   String _summarise(Map<String, dynamic> input) {
@@ -211,6 +240,7 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
                         ctrl: _inputCtrl,
                         running: codeState.isRunning,
                         onSend: _send,
+                        onStop: _stop,
                       ),
                     ],
                   ),
@@ -1078,9 +1108,14 @@ class _InputBar extends StatelessWidget {
   final TextEditingController ctrl;
   final bool running;
   final VoidCallback onSend;
+  final VoidCallback onStop;
 
-  const _InputBar(
-      {required this.ctrl, required this.running, required this.onSend});
+  const _InputBar({
+    required this.ctrl,
+    required this.running,
+    required this.onSend,
+    required this.onStop,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1100,7 +1135,7 @@ class _InputBar extends StatelessWidget {
               controller: ctrl,
               maxLines: 4,
               minLines: 1,
-              onSubmitted: (_) => onSend(),
+              onSubmitted: running ? null : (_) => onSend(),
               decoration: const InputDecoration(
                 hintText: 'Ask the agent…',
                 hintStyle: TextStyle(color: Colors.white24),
@@ -1109,16 +1144,12 @@ class _InputBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           running
-              ? SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: cs.primary),
-                    ),
+              ? IconButton.filled(
+                  onPressed: onStop,
+                  icon: const Icon(Icons.stop_rounded),
+                  style: IconButton.styleFrom(
+                    backgroundColor: cs.error,
+                    foregroundColor: cs.onError,
                   ),
                 )
               : IconButton.filled(
